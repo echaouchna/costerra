@@ -22,6 +22,13 @@ projects:
 recommendations:
   disabled: []          # e.g. [region-cheaper, compute-cud]
 
+# Observed usage of the deployed resources (last 30 days of Cloud Monitoring
+# metrics, active commitments): fills usage keys the usage file does not set
+# and makes recommendations data-based. Needs Monitoring Viewer and Compute
+# Viewer on the projects; skipped when not available.
+# observed_usage: true
+# quota_project: my-project   # quota project for the Recommender and Monitoring APIs
+
 policies:
   max_monthly_cost: 50000
   max_increase: 1000          # per diff, absolute

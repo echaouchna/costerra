@@ -11,8 +11,7 @@
 [![Website](https://img.shields.io/badge/website-costerra.echaouchna.dev-e5482f.svg)](https://costerra.echaouchna.dev/)
 
 Fast cost estimates and optimization insights for **Google Cloud** Terraform
-and Terragrunt code. costerra is written in Rust and is an alternative to
-Infracost that focuses on GCP.
+and Terragrunt code, written in Rust.
 
 * **Fast.** No `terraform init` and no credentials are needed to evaluate
   code. HCL is evaluated statically, in parallel. A repository with 15
@@ -150,6 +149,28 @@ resource_usage:
     monthly_hrs: 200
 ```
 
+### Observed usage
+
+When your credentials allow it, costerra also reads how the deployed resources
+were used over the **last 30 days**, and fills the usage keys your usage file
+does not set (a usage file value always wins):
+
+| Resource | Observed in | Usage key |
+|---|---|---|
+| `google_compute_instance` | CPU utilization (Cloud Monitoring) | `monthly_hrs` (hours it ran), CPU mean and 95th percentile |
+| `google_storage_bucket` | `storage/total_bytes` | `storage_gb` |
+| `google_sql_database_instance` | `database/disk/bytes_used` | `storage_gb` |
+| `google_cloud_run_v2_service`, `google_cloud_run_service`, `google_cloudfunctions2_function` | `request_count` | `monthly_requests` |
+| on-demand VMs | active Compute Engine commitments | share of vCPUs already committed |
+
+Resources are matched by GCP project and `name`, so names computed at apply
+time are skipped. Values are scaled to a month over the time the resource has
+existed (at least 3 days of data). A `Usage` line under the table says how many
+resources were observed. Results are cached for 6 hours; the first run waits
+at most 3 seconds for them. Turn it off with `--no-observed`,
+`COSTERRA_NO_OBSERVED=1` or `observed_usage: false`. See
+[Permissions](#permissions) for the roles.
+
 ### Example usage profiles
 
 Without estimates, costerra still shows what usage-based resources *could*
@@ -228,98 +249,36 @@ equivalent workflow: copy it to `.github/workflows/costerra.yml`. It runs the
 container image and creates or updates one pull request comment.
 
 Boolean environment variables (`COSTERRA_NO_REFRESH`, `COSTERRA_NO_INSIGHTS`,
-`COSTERRA_RABBIT_REVIEW`) accept `1`/`0`, `true`/`false`, `yes`/`no`.
+`COSTERRA_NO_OBSERVED`) accept `1`/`0`, `true`/`false`, `yes`/`no`.
 
 Colors: `--color auto|always|never` (also `NO_COLOR` and `CLICOLOR_FORCE`).
 Expensive items are highlighted: yellow above $100/month, red above $1,000/month.
 Missing prices are shown in red, and diffs show increases in red and decreases
 in green.
 
-## Usage-based recommendations (Google Cloud Recommender, Rabbit)
+## Usage-based recommendations (Google Cloud Recommender)
 
 Besides its own rules (static analysis of the code), costerra shows
-recommendations based on **observed usage**:
+recommendations from **Google Cloud Recommender** (Active Assist), based on
+observed usage: VM rightsizing, idle VMs, disks, IPs and images, idle and
+overprovisioned Cloud SQL, GKE, BigQuery partitioning, and committed use
+discounts for the billing account. Only the recommenders and locations matching
+resources in the code are queried.
 
-* **Google Cloud Recommender** (Active Assist): VM rightsizing, idle VMs,
-  disks, IPs and images, idle and overprovisioned Cloud SQL, GKE, BigQuery
-  partitioning, and committed use discounts for the billing account. Only the
-  recommenders and locations matching resources in the code are queried.
-* **Rabbit** ([followrabbit.ai](https://followrabbit.ai)): open
-  recommendations saved for the repository (rightsizing, idle resources,
-  commitments), when an API key is available (`FOLLOWRABBIT_API_KEY`, or the
-  `followrabbit auth login --key …` credentials).
-
-### Rabbit API key
-
-Create the key on the Rabbit agentic subscriptions site:
-**[subscriptions.agentic.followrabbit.ai](https://subscriptions.agentic.followrabbit.ai)**.
-Sign in, then use *Generate API keys for the followrabbit CLI*. Keys look like
-`rbt_live_…`; the free plan works for costerra. The BigQuery Job Optimizer key
-from `app.followrabbit.ai/api-keys` is a different key and is not used.
-
-```sh
-export FOLLOWRABBIT_API_KEY=rbt_live_…          # or: followrabbit auth login --key rbt_live_…
-curl -s -H "X-Rabbit-Api-Key: $FOLLOWRABBIT_API_KEY" https://api.agentic.followrabbit.ai/cli/status
-```
-
-Rabbit stores recommendations per repository: costerra sends the `origin` git
-remote URL of the analysed directory (as the `followrabbit` CLI does, then its
-normalized https form, e.g. `ssh://git@gitlab.com:2222/example/infra.git` →
-`https://gitlab.com/example/infra`). Credentials embedded in the remote URL, such
-as the `gitlab-ci-token:…@` of GitLab CI checkouts, are always removed first:
-they are never sent, cached or printed.
-
-> **Note:** the saved recommendation list is filled by Rabbit's own review
-> flows, such as the Rabbit GitHub App's PR reviews. Repositories that Rabbit
-> has not reviewed, like GitLab repositories when only the GitHub App is used,
-> return an empty list. costerra then shows
-> "Rabbit: no open recommendations saved for <repo>". Use `--rabbit-review`
-> (below) to get findings for any repository.
-
-> **Experimental.** The Rabbit integration uses the API of the `followrabbit`
-> CLI, which is not publicly documented and may change. It is only active when
-> a Rabbit API key is configured.
-
-### Rabbit AI cost review (`--rabbit-review`)
-
-`costerra breakdown --rabbit-review` (or `rabbit_review: true`, or
-`COSTERRA_RABBIT_REVIEW=1`) runs Rabbit's AI cost review, the one behind
-`followrabbit costreview`, on the analysed directory:
-
-* it **uploads the Terraform files** (`*.tf`, `*.tfvars`, `*.hcl`, up to 512 KiB)
-  plus a resource index to `https://api.agentic.followrabbit.ai/cli/engine`.
-  Files ignored by git (`.gitignore`, `.git/info/exclude`), hidden paths,
-  `.terraform`, `.terragrunt-cache`, `node_modules`, `exclude_paths` / `--exclude`
-  and paths listed in a `.costerraignore` file (gitignore syntax) are never
-  uploaded;
-* **secret values are redacted** before upload: literal values of attributes
-  and variables named like `password`, `secret`, `token`, `api_key`,
-  `private_key`, `credentials`… (including heredocs and JSON), and PEM private
-  key blocks. References such as `var.db_password` are kept;
-* files that do not fit in the 512 KiB budget are listed in a note (review a
-  subdirectory, or exclude paths), never dropped silently;
-* `--rabbit-review-dry-run` prints the files that would be uploaded and the
-  number of redacted values, without sending anything;
-* it **uses your Rabbit quota**, about $0.01 per review (the free plan includes
-  $10 per month), and takes 10 to 30 seconds;
-* findings are matched to the resources they concern (`file:line` or resource
-  names) and tagged `Rabbit` with their source (model, request id, location);
-* results are **cached by content hash**, so unchanged code is not reviewed or
-  billed again; costerra prints what each review cost.
-
-It is opt-in because it sends your code to a third party and is not instant.
-Without `--rabbit-review`, costerra only reads the saved recommendation list
-and uploads nothing. Rabbit allows 10 requests per minute per key; costerra
-makes at most two per run. Saved recommendations are cached for 6 hours, AI
-reviews for as long as the uploaded content is unchanged. Treat the key as a
-secret: in CI, store it as a masked, protected variable.
-
-Every recommendation shows its source: a `costerra`, `Google` or `Rabbit` tag,
+Every recommendation shows its source: a `costerra` or `Google` tag,
 and a `Source:` line (the costerra rule ID, which you can disable in
 `costerra.yml`; the Google recommender, with a ready-to-run
-`gcloud recommender recommendations describe …` command; or the Rabbit
-recommendation type and link). The JSON report has `source` and `source_ref`,
-and the MR comment has a Source column.
+`gcloud recommender recommendations describe …` command), and what it is based
+on: the code, your usage file, or observed usage. The JSON report has `source`,
+`source_ref` and `basis` (`code`, `usage_file`, `observed`), and the MR comment
+has a Source column.
+
+When Google and a costerra rule give the same advice for a resource, only
+Google's is kept, since it is based on observed usage: Google rightsizing
+replaces costerra's machine family and rightsizing advice, an idle-resource
+recommendation replaces the advice for that VM, disk or IP, and Google
+commitment recommendations for the billing account replace costerra's
+commitment advice in that region.
 
 Recommendations are matched to the Terraform resources they concern. Others, such as billing-account commitments,
 are shown in a "☁️ From your cloud usage" section, with 1-year and 3-year
@@ -330,7 +289,46 @@ The Recommender API needs a quota project with the API enabled when you use user
 credentials. costerra uses `--quota-project` / `quota_project:` /
 `GOOGLE_CLOUD_QUOTA_PROJECT`, otherwise the `quota_project_id` of your
 Application Default Credentials. Disable with `--no-insights`,
-`gcp_recommendations: false` or `rabbit_recommendations: false`.
+or `gcp_recommendations: false`.
+
+## Getting more accurate recommendations
+
+costerra uses whatever it can read and falls back on the code otherwise; each
+recommendation says what it is based on. From least to most accurate:
+
+1. **The code only.** Rules see machine types, disks, regions and settings, and
+   assume defaults where the code says nothing: VMs run all month, half of a
+   bucket's data is cold, nothing is committed yet. Usage-based costs are left
+   as unit prices.
+2. **Your environments.** Spot, single-zone and no-HA advice only applies
+   outside production. Label resources with `env` / `environment`, or map paths
+   and project ids to environments in `costerra.yml` (`environments:`,
+   `projects:`), so that production is never treated as dev.
+3. **A usage file** (`costerra usage init`): your estimates of hours, storage,
+   requests and egress. Commitment advice needs VMs that run at least 90% of the
+   month; storage advice uses the stored volume.
+4. **Observed usage** ([Cloud Monitoring and commitments](#observed-usage)),
+   with Monitoring Viewer and Compute Viewer on the projects. This enables
+   advice that needs real data:
+   * `compute-idle`: CPU below 3% for at least a week;
+   * `compute-rightsize`: halve the vCPUs when the mean CPU is below 20% and the
+     95th percentile below 35%;
+   * `compute-schedule-nonprod`: a non-production VM that runs around the clock
+     can be stopped outside working hours;
+   * cheaper machine families are not proposed for VMs whose CPU is saturated
+     (95th percentile above 85%);
+   * commitment advice leaves out the vCPUs your active commitments already
+     cover, and is skipped for VMs that do not run all month.
+5. **Google Cloud Recommender**, with Recommender Viewer: Google's own
+   analysis of the usage (memory included, through the Ops Agent), and
+   commitment recommendations for the billing account with Billing Account
+   Viewer.
+6. **Your contract prices** ([Billing Account Viewer](#your-prices-contract-discounts)):
+   savings are computed with your discounts, not list prices.
+
+In CI, give the service account the read-only roles of the
+[Permissions](#permissions) section to get all of the above. Without them,
+costerra still runs and says which sources were not available.
 
 ## Configuration
 
@@ -351,6 +349,8 @@ projects:
     env: prod
 recommendations:
   disabled: [region-cheaper]
+observed_usage: true          # read 30 days of Cloud Monitoring metrics and active commitments
+quota_project: my-project     # quota project for the Recommender and Cloud Monitoring APIs
 policies:
   max_monthly_cost: 50000
   max_increase_percent: 15
@@ -452,13 +452,15 @@ not an API key) and these permissions:
 
 | Step | API call | Permission | Granted by |
 |---|---|---|---|
-| Detect the billing account of the projects in your code | `projects/{id}/billingInfo` | `resourcemanager.projects.get` on the project | Viewer, Billing Account Viewer |
+| Detect the billing account of the projects in your code | `projects/{id}/billingInfo` | `resourcemanager.projects.get` on the project | Viewer (`roles/viewer`) or Browser (`roles/browser`) on the project |
 | Fall back to the only open billing account you can see | `billingAccounts.list` | `billing.accounts.list` | Billing Account Viewer |
 | Read contract prices | `billingAccounts/{id}/skus/-/prices` | `billing.billingAccountPrice.get` | Billing Account Viewer |
 
-Granting **Billing Account Viewer** (`roles/billing.viewer`) on the billing
-account is enough. With `--billing-account`, `COSTERRA_BILLING_ACCOUNT` or
-`billing_account:`, detection is skipped. When a permission is missing, costerra
+**Billing Account Viewer** (`roles/billing.viewer`) on the billing account is
+what reads the prices. To find the account, costerra also needs Viewer or
+Browser on the projects, unless you can see only one billing account or you
+set it with `--billing-account`, `COSTERRA_BILLING_ACCOUNT` or
+`billing_account:` (detection is then skipped). When a permission is missing, costerra
 falls back to list prices; the `Pricing` line under the table says which
 prices were used.
 
@@ -470,10 +472,24 @@ Typical setups:
 * **CI, contract prices:** a service account (workload identity federation)
   with `roles/billing.viewer` on the billing account, and
   `COSTERRA_BILLING_ACCOUNT` set.
+* **CI, most accurate:** the same service account, also with
+  `roles/monitoring.viewer`, `roles/compute.viewer` and
+  `roles/recommender.viewer` on the projects.
 
-[Recommendations](#usage-based-recommendations-google-cloud-recommender-rabbit)
-use the Recommender API, which needs the Recommender viewer roles on the
-projects and, with user credentials, a quota project where that API is enabled.
+**Observed usage and recommendations** are optional: each one that is missing is
+skipped, and a note under the table says what to grant.
+
+| Data | API | Role (read-only) | On |
+|---|---|---|---|
+| [Observed usage](#observed-usage): CPU, uptime, storage, requests | Cloud Monitoring (`monitoring.googleapis.com`) | Monitoring Viewer (`roles/monitoring.viewer`) | the projects |
+| Active commitments | Compute Engine (`compute.googleapis.com`) | Compute Viewer (`roles/compute.viewer`) | the projects |
+| [Google recommendations](#usage-based-recommendations-google-cloud-recommender) for resources | Recommender (`recommender.googleapis.com`) | Recommender Viewer (`roles/recommender.viewer`) | the projects |
+| Google commitment recommendations for the billing account | Recommender | Billing Account Viewer (`roles/billing.viewer`), as for contract prices | the billing account |
+
+With user credentials, the Recommender and Cloud Monitoring APIs need a quota
+project where they are enabled: `--quota-project`, `quota_project:`,
+`GOOGLE_CLOUD_QUOTA_PROJECT`, or the `quota_project_id` of your Application
+Default Credentials.
 
 ## Pricing details
 
@@ -521,7 +537,7 @@ Tests:
   no network or credentials needed. When a model starts using other SKUs, run
   `just golden-catalog` and review the diff of expected values;
 * **CLI tests** (`tests/cli.rs`) run the binary end to end (diff against a git
-  ref, policies, config and usage file errors, Rabbit dry run…);
+  ref, policies, config and usage file errors…);
 * **fixture tests** (`tests/fixtures.rs`) price every fixture with the live
   catalog (`just sync-prices`) to catch SKUs renamed by Google. Without a
   catalog they are skipped locally, and fail in CI unless
@@ -560,5 +576,4 @@ Cloud list prices from the public Cloud Billing Catalog API, and
 `data/machine_types.tsv` describes Google Cloud machine types from public
 documentation. All project names, ids and accounts in the test fixtures and
 examples are fictitious. Google Cloud is a trademark of Google LLC; costerra
-is an independent project, not affiliated with or endorsed by Google, Rabbit
-(followrabbit.ai) or Infracost.
+is an independent project, not affiliated with or endorsed by Google.

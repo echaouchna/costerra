@@ -1,6 +1,6 @@
 [package]
 name = "costerra"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Fast cost estimates and optimization insights for Google Cloud Terraform & Terragrunt"
 license = "Apache-2.0"
@@ -24,7 +24,6 @@ futures = "0.3.34"
 gcp_auth = "0.12.7"
 globset = "0.4.20"
 hcl-rs = "0.19"
-ignore = "0.4.33"
 indexmap = { version = "2.14.2", features = ["serde"] }
 indicatif = "0.18.6"
 parking_lot = "0.12.5"

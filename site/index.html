@@ -14,9 +14,9 @@
   <link rel="icon" href="favicon-v2-32.png" type="image/png" sizes="32x32">
   <link rel="icon" href="assets/costerra-icon-v2-256.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="apple-touch-icon-v2.png" sizes="180x180">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preload" href="fonts/ibm-plex-sans-400-600-normal-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/fraunces-300-800-normal-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -24,9 +24,9 @@
   <!-- ───────────── Top line ───────────── -->
   <a class="topline" href="https://github.com/echaouchna/costerra/releases" target="_blank" rel="noopener">
     <span class="tl-tag">NEW</span>
-    <span>costerra 0.1.0, the first public release, is out</span>
+    <span>costerra 0.2.0: recommendations from your real usage</span>
     <span class="tl-sep">/</span>
-    <span class="tl-dim">Apache-2.0 · Rust 1.89+ · Linux &amp; macOS</span>
+    <span class="tl-dim">Cloud Monitoring · existing commitments · idle &amp; rightsizing</span>
     <span class="tl-arrow">Release notes →</span>
   </a>
 
@@ -255,12 +255,11 @@
           <article class="spec-cell span-3 reveal" style="--d:.06s">
             <span class="spec-n">07</span>
             <h3>Private by default</h3>
-            <p>Your code is evaluated on your machine and nothing is uploaded. The AI review is opt-in. Before it uploads anything, it redacts secrets, skips git-ignored files and honours <code>.costerraignore</code>. A dry run shows exactly what would be sent.</p>
-<pre class="fig code-mini" aria-hidden="true"><span class="k">resource</span> <span class="s">"google_sql_user"</span> <span class="s">"app"</span> {
-  name     = <span class="s">"app"</span>
-  password = <span class="redact"><span class="s">"s3cr3t-pa55w0rd"</span></span>
-  instance = google_sql_database_instance.main.name
-}</pre>
+            <p>Your code is evaluated on your machine and is never uploaded. costerra only makes read-only calls to Google Cloud APIs, for prices, observed usage and recommendations.</p>
+<pre class="fig code-mini" aria-hidden="true"><span class="k">read-only</span> cloudbilling.googleapis.com  <span class="s"># prices</span>
+<span class="k">read-only</span> monitoring.googleapis.com    <span class="s"># observed usage</span>
+<span class="k">read-only</span> recommender.googleapis.com   <span class="s"># recommendations</span>
+<span class="k">never</span>     your Terraform code</pre>
           </article>
         </div>
       </div>
@@ -304,7 +303,7 @@
             <span class="bench" aria-hidden="true"></span>
             <span class="st-n">STATION 04</span>
             <h3>Advise</h3>
-            <p>More than 120 rules plus Google Cloud Recommender and Rabbit insights, each with an estimated monthly saving and its source.</p>
+            <p>More than 120 rules, sharpened by 30 days of Cloud Monitoring metrics when you can read them, plus Google Cloud Recommender insights. Each comes with an estimated monthly saving, its source and the data it is based on.</p>
             <div class="tags"><span>table</span><span>JSON</span><span>Markdown</span><span>exit codes</span></div>
           </div>
         </div>
@@ -356,7 +355,7 @@
             <div class="num a-save">−$16.06</div>
           </div>
           <div class="audit-row">
-            <div class="a-find"><span class="sev low">LOW</span>Static IP address is not attached to anything <span class="src r">Rabbit</span></div>
+            <div class="a-find"><span class="sev low">LOW</span>Static IP address is not attached to anything <span class="src g">Google</span></div>
             <div class="a-res">live/dev/network<br><code>google_compute_address.legacy</code></div>
             <div class="num"><s>$7.30</s></div>
             <div class="num">$0.00</div>
@@ -364,7 +363,7 @@
           </div>
 
           <div class="audit-total">
-            <p class="a-foot">The total counts the best option per resource, so alternatives for the same VM are never added together. Each line names its source: a costerra rule ID, a ready-to-run <code>gcloud recommender</code> command, or a Rabbit link.</p>
+            <p class="a-foot">The total counts the best option per resource, so alternatives for the same VM are never added together. Each line names its source (a costerra rule ID, or a ready-to-run <code>gcloud recommender</code> command) and what it is based on: the code, your usage file or observed usage.</p>
             <div class="a-sum">
               <span>Potential savings</span>
               <b><span class="circled">$<span data-count="336.06" data-decimals="2">0</span><svg viewBox="0 0 300 110" preserveAspectRatio="none" aria-hidden="true"><path d="M168 8C96 2 18 18 8 52c-9 32 58 52 146 50 84-2 138-22 136-52C288 20 220 4 140 10"/></svg></span><small>/month</small></b>
@@ -615,14 +614,10 @@
         <a href="https://github.com/echaouchna/costerra/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
         <a href="https://github.com/echaouchna/costerra/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
       </nav>
-      <div class="colophon">
-        <span class="sec-mark">Colophon</span>
-        <p>Set in Fraunces and IBM Plex. Contour lines are drawn live from noise. Hosted on GitHub Pages without trackers or cookies.</p>
-      </div>
     </div>
     <div class="container footer-legal">
       <p>© 2026 Nabil Echaouch · Apache License 2.0</p>
-      <p>Google Cloud is a trademark of Google LLC. costerra is an independent project, not affiliated with or endorsed by Google, Rabbit or Infracost.</p>
+      <p>Google Cloud is a trademark of Google LLC. costerra is an independent project, not affiliated with or endorsed by Google.</p>
     </div>
   </footer>
 

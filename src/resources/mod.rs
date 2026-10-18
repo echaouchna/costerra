@@ -16,11 +16,12 @@ mod network;
 mod serverless;
 mod storage;
 
-use crate::cost::{Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
+use crate::cost::{Basis, Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
 use crate::hcl::value::{Map, Value};
+use crate::observed::{CpuStats, ObservedResource};
 use crate::pricing::query::{Pricer, Query, normalize_region};
 use crate::tf::evaluate::ResourceInstance;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -444,6 +445,12 @@ pub struct Ctx<'a> {
     /// Location reported for the resource when it is not a plain region
     /// attribute (e.g. Spanner config, AlloyDB cluster). Set via `set_location`.
     pub location: RefCell<Option<String>>,
+    /// Usage observed in Google Cloud for this resource.
+    pub observed: Option<&'a ObservedResource>,
+    /// Keys of `usage` whose value was observed (not from a usage file).
+    pub observed_keys: &'a [String],
+    /// Most accurate data read so far (for recommendations).
+    pub basis: Cell<Basis>,
 }
 
 impl<'a> Ctx<'a> {
@@ -501,11 +508,45 @@ impl<'a> Ctx<'a> {
     // ---- usage -------------------------------------------------------------
 
     pub fn usage_num(&self, key: &str) -> Option<f64> {
-        self.usage.get(key).and_then(|v| v.as_f64())
+        let v = self.usage.get(key).and_then(|v| v.as_f64());
+        self.used(key, v.is_some());
+        v
     }
 
     pub fn usage_str(&self, key: &str) -> Option<&str> {
-        self.usage.get(key).and_then(|v| v.as_str())
+        let v = self.usage.get(key).and_then(|v| v.as_str());
+        self.used(key, v.is_some());
+        v
+    }
+
+    fn used(&self, key: &str, found: bool) {
+        if found {
+            let b = if self.observed_keys.iter().any(|k| k == key) { Basis::Observed } else { Basis::UsageFile };
+            self.basis.set(self.basis.get().max(b));
+        }
+    }
+
+    /// Observed CPU utilization (VMs).
+    pub fn observed_cpu(&self) -> Option<CpuStats> {
+        let c = self.observed.and_then(|o| o.cpu);
+        if c.is_some() {
+            self.basis.set(Basis::Observed);
+        }
+        c
+    }
+
+    /// Share of this VM's vCPUs already covered by active commitments.
+    pub fn committed_fraction(&self) -> Option<f64> {
+        let f = self.observed.and_then(|o| o.committed_fraction);
+        if f.is_some() {
+            self.basis.set(Basis::Observed);
+        }
+        f
+    }
+
+    /// Forget the data read so far (before running a new set of rules).
+    pub fn reset_basis(&self) {
+        self.basis.set(Basis::Code);
     }
 
     // ---- location ----------------------------------------------------------
@@ -704,6 +745,7 @@ impl<'a> Ctx<'a> {
             title: title.into(),
             detail: detail.into(),
             monthly_savings: monthly_savings.map(|s| (s * 100.0).round() / 100.0),
+            basis: self.basis.get(),
         }
     }
 
@@ -731,8 +773,12 @@ impl<'a> Ctx<'a> {
             siblings: self.siblings,
             warnings: RefCell::new(vec![]),
             location: RefCell::new(None),
+            observed: self.observed,
+            observed_keys: self.observed_keys,
+            basis: Cell::new(Basis::Code),
         };
         let comps = (spec.estimate)(&ctx);
+        self.basis.set(self.basis.get().max(ctx.basis.get()));
         if comps.iter().any(|c| c.is_unpriced()) {
             return None;
         }

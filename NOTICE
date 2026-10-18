@@ -6,5 +6,7 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 It includes Google Cloud list prices (testdata/pricing/golden-catalog.json,
 test fixture only) and machine type specifications (data/machine_types.tsv)
 derived from public Google Cloud information. Google Cloud is a trademark of
-Google LLC; costerra is not affiliated with or endorsed by Google, Rabbit
-(followrabbit.ai) or Infracost.
+Google LLC; costerra is not affiliated with or endorsed by Google.
+
+The website (site/) bundles the Fraunces and IBM Plex fonts, licensed under the
+SIL Open Font License 1.1 (see site/fonts/OFL-*.txt).

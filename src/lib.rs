@@ -8,6 +8,7 @@ pub mod engine;
 pub mod free_tier;
 pub mod hcl;
 pub mod insights;
+pub mod observed;
 pub mod output;
 pub mod pricing;
 pub mod profiles;

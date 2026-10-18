@@ -230,6 +230,7 @@ pub fn build_pricer(a: &RunArgs, config: &Config, sets: &[&[Project]], usage: &U
             usage,
             config,
             recommendations: false,
+            observed: None,
         };
         for s in sets {
             engine.report(s);

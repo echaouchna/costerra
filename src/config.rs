@@ -67,14 +67,13 @@ pub struct Config {
     pub price_cache_ttl: Option<String>,
     /// Cache directory (default ~/.cache/costerra).
     pub cache_dir: Option<PathBuf>,
-    /// Quota project for Google APIs that need one (Recommender).
+    /// Quota project for Google APIs that need one (Recommender, Cloud Monitoring).
     pub quota_project: Option<String>,
     /// Usage-based recommendations from Google Cloud Recommender (default true).
     pub gcp_recommendations: Option<bool>,
-    /// Recommendations from Rabbit (followrabbit.ai) when an API key is available (default true).
-    pub rabbit_recommendations: Option<bool>,
-    /// Run a Rabbit AI cost review of the Terraform (uploads files, uses Rabbit quota; default false).
-    pub rabbit_review: Option<bool>,
+    /// Observed usage of the deployed resources: Cloud Monitoring metrics and
+    /// active commitments (default true).
+    pub observed_usage: Option<bool>,
     pub usage_file: Option<PathBuf>,
     pub include_free_tier: bool,
     pub exclude_paths: Vec<String>,

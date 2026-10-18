@@ -25,9 +25,8 @@ fn costerra(cache: &Path, cwd: &Path, args: &[&str]) -> Output {
         .arg(cache)
         .args(["--color", "never"])
         .args(args)
-        .env_remove("FOLLOWRABBIT_API_KEY")
-        .env("RABBIT_CONFIG_DIR", cache)
         .env("COSTERRA_NO_INSIGHTS", "1")
+        .env("COSTERRA_NO_OBSERVED", "1")
         .output()
         .unwrap()
 }
@@ -176,17 +175,56 @@ fn usage_init_does_not_overwrite() {
 }
 
 #[test]
-fn rabbit_review_dry_run_sends_nothing_and_skips_secrets() {
+fn observed_usage_settings_and_removed_rabbit_options() {
     let cache = cache_dir();
     let dir = tempfile::tempdir().unwrap();
-    copy_dir(&testdata("terraform/basic"), dir.path());
-    std::fs::write(dir.path().join(".gitignore"), "secret.auto.tfvars\n").unwrap();
-    std::fs::write(dir.path().join("secret.auto.tfvars"), "db_password = \"hunter2\"\n").unwrap();
-    std::fs::write(dir.path().join("env.tfvars"), "api_token = \"t0k3n\"\nregion = \"europe-west1\"\n").unwrap();
-    let o = costerra(cache.path(), dir.path(), &["breakdown", ".", "--rabbit-review-dry-run"]);
+    copy_dir(&testdata("terragrunt"), dir.path());
+    let mut args = vec!["breakdown", ".", "--no-observed"];
+    args.extend(OFFLINE);
+
+    std::fs::write(dir.path().join("costerra.yml"), "observed_usage: false\nquota_project: my-quota\n").unwrap();
+    let o = costerra(cache.path(), dir.path(), &args);
     assert!(o.status.success(), "{}", text(&o.stderr));
+
+    // Rabbit was removed in 0.2.0: its keys and flags are errors.
+    std::fs::write(dir.path().join("costerra.yml"), "rabbit_review: true\n").unwrap();
+    let o = costerra(cache.path(), dir.path(), &args);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(text(&o.stderr).contains("rabbit_review"), "{}", text(&o.stderr));
+    std::fs::remove_file(dir.path().join("costerra.yml")).unwrap();
+    let o = costerra(cache.path(), dir.path(), &["breakdown", ".", "--rabbit-review"]);
+    assert!(!o.status.success());
+    assert!(text(&o.stderr).contains("--rabbit-review"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn recommendations_say_what_they_are_based_on() {
+    let cache = cache_dir();
+    let mut args = vec!["breakdown", "terragrunt", "-f", "json"];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), &testdata(""), &args);
+    let j: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    let recs: Vec<&serde_json::Value> =
+        j["projects"].as_array().unwrap().iter().flat_map(|p| p["recommendations"].as_array().unwrap()).collect();
+    assert!(!recs.is_empty());
+    assert!(recs.iter().all(|r| r["basis"] == "code"), "no usage file nor observed usage");
+    assert!(j.get("observed").is_none());
+
+    let mut args = vec!["breakdown", "terragrunt"];
+    args.extend(OFFLINE);
+    let out = text(&costerra(cache.path(), &testdata(""), &args).stdout);
+    assert!(out.contains("Source: costerra rule compute-cud, based on the code"), "{out}");
+}
+
+#[test]
+fn unpriced_resources_cost_zero_not_minus_zero() {
+    let cache = cache_dir();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.tf"), "resource \"google_storage_bucket\" \"b\" {\n  name     = \"b\"\n  location = \"EU\"\n}\n")
+        .unwrap();
+    let mut args = vec!["breakdown", ".", "-f", "json"];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), dir.path(), &args);
     let out = text(&o.stdout);
-    assert!(out.contains("main.tf") && out.contains("env.tfvars"), "{out}");
-    assert!(!out.contains("secret.auto.tfvars"), "{out}");
-    assert!(out.contains("1 secret values would be replaced"), "{out}");
+    assert!(!out.contains("-0.0"), "{out}");
 }

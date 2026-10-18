@@ -76,14 +76,16 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
         Base::Projects(p) => vec![&head_projects, p],
         _ => vec![&head_projects],
     };
+    let observing = insights::start_observed(a, &config, &sets);
     let pricer = prices::build_pricer(a, &config, &sets, &usage, prefetch)?;
+    let observed = insights::finish_observed(observing);
     let pending = insights::start(a, &config, &[&head_projects], pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
-    let mut head = price(a, &head_projects, &config, &pricer, &usage);
+    let mut head = price(a, &head_projects, &config, &pricer, &usage, observed.as_ref());
     insights::finish(pending, &mut head, &head_projects);
     let dr: DiffReport = match base {
         Base::Report(b) => diff::compare(&b, &head),
-        Base::Projects(p) => diff::compare(&price(a, &p, &config, &pricer, &usage), &head),
+        Base::Projects(p) => diff::compare(&price(a, &p, &config, &pricer, &usage, observed.as_ref()), &head),
         Base::Empty => diff::compare(&Report { projects: vec![], monthly_cost: 0.0, ..head.clone() }, &head),
         Base::Plan => match diff::from_plan(&head) {
             Some(pd) => pd,

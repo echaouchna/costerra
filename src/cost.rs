@@ -82,7 +82,7 @@ pub struct CostedResource {
 
 impl CostedResource {
     pub fn total(components: &[Component]) -> f64 {
-        components.iter().filter_map(|c| c.monthly_cost).sum()
+        sum(components.iter().filter_map(|c| c.monthly_cost))
     }
 }
 
@@ -95,19 +95,58 @@ pub enum Severity {
     High,
 }
 
+/// Sum of amounts; 0.0 when empty (an empty f64 sum is -0.0, shown as "-0.0").
+pub fn sum(amounts: impl Iterator<Item = f64>) -> f64 {
+    amounts.sum::<f64>() + 0.0
+}
+
 fn default_source() -> String {
     "costerra".into()
+}
+
+/// The data a recommendation is based on, from least to most accurate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Basis {
+    /// The code only (and defaults such as "always on").
+    #[default]
+    Code,
+    /// Values from a usage file.
+    UsageFile,
+    /// Usage observed in Google Cloud (Cloud Monitoring, commitments, Recommender).
+    Observed,
+}
+
+impl Basis {
+    pub fn describe(self) -> &'static str {
+        match self {
+            Basis::Code => "based on the code",
+            Basis::UsageFile => "based on your usage file",
+            Basis::Observed => "based on observed usage",
+        }
+    }
+}
+
+/// Observed usage used by a report.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ObservedSummary {
+    /// Data sources that returned data (e.g. "Cloud Monitoring").
+    pub sources: Vec<String>,
+    /// Resources with observed usage.
+    pub resources: usize,
+    /// Length of the observation window.
+    pub window_days: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recommendation {
     pub id: String,
     /// Where the recommendation comes from: costerra (static analysis of the
-    /// code), gcp (Google Cloud Recommender, observed usage) or rabbit.
+    /// code) or gcp (Google Cloud Recommender, observed usage).
     #[serde(default = "default_source")]
     pub source: String,
     /// How to trace the recommendation back to its source: the costerra rule,
-    /// the Recommender name and `gcloud … describe` command, or a Rabbit link.
+    /// or the Recommender name and `gcloud … describe` command.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
     pub severity: Severity,
@@ -117,6 +156,9 @@ pub struct Recommendation {
     /// Estimated monthly savings if applied (None when not quantifiable).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub monthly_savings: Option<f64>,
+    /// The data the recommendation is based on.
+    #[serde(default)]
+    pub basis: Basis,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +219,9 @@ pub struct Report {
     pub external_recommendations: Vec<Recommendation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub insight_notes: Vec<String>,
+    /// Observed usage (Cloud Monitoring, commitments) used for this report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<ObservedSummary>,
     /// Free tiers of the services in this report (not deducted unless included).
     #[serde(default)]
     pub free_tiers: Vec<crate::free_tier::FreeTierInfo>,
@@ -202,5 +247,5 @@ pub fn potential_savings<'a>(recs: impl IntoIterator<Item = (&'a str, &'a Recomm
             *e = e.max(s);
         }
     }
-    best.values().sum()
+    sum(best.values().copied())
 }

@@ -4,8 +4,9 @@ use super::args::{EvalArgs, RunArgs};
 use super::ui::{self, notice};
 use anyhow::{Context, Result};
 use costerra::config::Config;
-use costerra::cost::Report;
+use costerra::cost::{ObservedSummary, Report};
 use costerra::engine::Engine;
+use costerra::observed::Observed;
 use costerra::output::Style;
 use costerra::pricing::catalog;
 use costerra::pricing::query::Pricer;
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-/// One Tokio runtime for the whole process (Recommender, Rabbit, Pricing API).
+/// One Tokio runtime for the whole process (Recommender, Pricing API).
 pub fn rt() -> Result<&'static tokio::runtime::Runtime> {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     if let Some(rt) = RT.get() {
@@ -177,7 +178,14 @@ pub fn load_projects(e: &EvalArgs, path: &Path, config: &Config) -> Result<Vec<P
     Ok(projects)
 }
 
-pub fn price(a: &RunArgs, projects: &[Project], config: &Config, pricer: &Pricer, usage: &UsageFile) -> Report {
+pub fn price(
+    a: &RunArgs,
+    projects: &[Project],
+    config: &Config,
+    pricer: &Pricer,
+    usage: &UsageFile,
+    observed: Option<&Observed>,
+) -> Report {
     let t = Instant::now();
     let list = pricer.list_view();
     let engine = Engine {
@@ -188,9 +196,22 @@ pub fn price(a: &RunArgs, projects: &[Project], config: &Config, pricer: &Pricer
         usage,
         config,
         recommendations: !a.no_recommendations,
+        observed,
     };
     let mut report = engine.report(projects);
     report.usage_profile = a.usage_profile.map(|p| p.name().to_string());
+    if let Some(o) = observed {
+        let names: std::collections::HashSet<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+        let resources = o.resources.keys().filter(|(p, _)| names.contains(p.as_str())).count();
+        if resources > 0 {
+            report.observed = Some(ObservedSummary {
+                sources: o.sources.iter().cloned().collect(),
+                resources,
+                window_days: costerra::observed::WINDOW_DAYS,
+            });
+        }
+        report.insight_notes.extend(o.notes.iter().cloned());
+    }
     tracing::info!("priced {} projects in {:?}", report.projects.len(), t.elapsed());
     report
 }

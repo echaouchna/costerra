@@ -84,8 +84,8 @@ fn diff_resources(past: &[CostedResource], new: &[CostedResource]) -> Vec<Resour
 }
 
 fn project_diff(name: &str, past: &[CostedResource], new: &[CostedResource]) -> ProjectDiff {
-    let pt: f64 = past.iter().map(|r| r.monthly_cost).sum();
-    let nt: f64 = new.iter().map(|r| r.monthly_cost).sum();
+    let pt = crate::cost::sum(past.iter().map(|r| r.monthly_cost));
+    let nt = crate::cost::sum(new.iter().map(|r| r.monthly_cost));
     ProjectDiff { name: name.to_string(), past: pt, new: nt, diff: nt - pt, resources: diff_resources(past, new) }
 }
 
@@ -122,7 +122,7 @@ pub fn from_plan(head: &Report) -> Option<DiffReport> {
 }
 
 fn finish(currency: String, projects: Vec<ProjectDiff>) -> DiffReport {
-    let past = projects.iter().map(|p| p.past).sum();
-    let new = projects.iter().map(|p| p.new).sum();
+    let past = crate::cost::sum(projects.iter().map(|p| p.past));
+    let new = crate::cost::sum(projects.iter().map(|p| p.new));
     DiffReport { currency, past, new, diff: new - past, projects }
 }

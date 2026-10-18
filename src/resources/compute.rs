@@ -808,6 +808,29 @@ pub(crate) mod rules {
         let Some(mt) = machine::parse(&spec.machine) else { return out };
         let hours = ctx.monthly_hours();
 
+        // Observed CPU use (Cloud Monitoring), for single VMs.
+        let cpu = if ctx.r.rtype == "google_compute_instance" { ctx.observed_cpu().filter(|c| c.days >= 7.0) } else { None };
+        let idle = cpu.is_some_and(|c| c.p95 < 0.03);
+        let busy = cpu.is_some_and(|c| c.p95 >= 0.85);
+
+        // Idle VM: no meaningful CPU use over the observation window.
+        if let Some(c) = cpu.filter(|_| idle) {
+            out.push(ctx.rec(
+                "compute-idle",
+                Severity::Medium,
+                "This VM looks idle",
+                format!(
+                    "CPU use stayed below 3% for {:.0} days (mean {:.1}%, 95th percentile {:.1}%). Stop or delete it if it is not needed; a stopped VM only pays for its disks and IPs.",
+                    c.days,
+                    c.mean * 100.0,
+                    c.p95 * 100.0
+                ),
+                Some(cr.monthly_cost),
+            ));
+            // Other advice does not matter for a VM that is not used.
+            return out;
+        }
+
         // 1. Spot VMs for non-production.
         if ctx.env == Env::NonProd && spec.pricing == Pricing::OnDemand && mt.accelerators.is_empty() {
             let spot = VmSpec {
@@ -829,8 +852,60 @@ pub(crate) mod rules {
             }
         }
 
-        // 2. Cheaper machine family with the same shape.
-        if !mt.custom && !mt.shared_core && mt.accelerators.is_empty() && spec.gpus.is_empty() && spec.pricing != Pricing::Spot {
+        // Rightsize: halve the vCPUs of a VM that uses little of its CPU.
+        if let Some(c) = cpu.filter(|c| !idle && c.p95 < 0.35 && c.mean < 0.2)
+            && !mt.custom
+            && mt.vcpus >= 4.0
+            && let Some((prefix, _)) = mt.name.rsplit_once('-')
+        {
+            let cand = format!("{prefix}-{}", (mt.vcpus / 2.0) as u32);
+            if machine::parse(&cand).is_some_and(|m| m.family == mt.family) {
+                let alt = VmSpec {
+                    machine: cand.clone(),
+                    disks: spec.disks.clone(),
+                    gpus: spec.gpus.clone(),
+                    image: spec.image.clone(),
+                    ..spec.clone()
+                };
+                if let Some(s) = ctx.savings_vs(current, total(ctx, &alt)) {
+                    out.push(ctx.rec(
+                        "compute-rightsize",
+                        if s > 100.0 { Severity::Medium } else { Severity::Low },
+                        format!("Downsize {} to {cand}", mt.name),
+                        format!(
+                            "CPU use over {:.0} days: mean {:.1}%, 95th percentile {:.1}%. Half the vCPUs would still leave headroom. Check memory use first (it needs the Ops Agent to be measured).",
+                            c.days,
+                            c.mean * 100.0,
+                            c.p95 * 100.0
+                        ),
+                        Some(s),
+                    ));
+                }
+            }
+        }
+
+        // Always-on non-production VM: stop it outside working hours.
+        if ctx.env == Env::NonProd && !idle && ctx.observed_keys.iter().any(|k| k == "monthly_hrs") && hours >= HOURS_PER_MONTH * 0.9 {
+            // 10 hours a day, 5 days a week.
+            let working = 50.0 * 52.0 / 12.0;
+            let machine_cost: f64 =
+                cr.components.iter().filter(|c| c.name.starts_with("Instance usage")).filter_map(|c| c.monthly_cost).sum();
+            let s = machine_cost * (1.0 - working / hours);
+            if s > 5.0 {
+                out.push(ctx.rec(
+                    "compute-schedule-nonprod",
+                    Severity::Low,
+                    "Stop this non-production VM outside working hours",
+                    format!(
+                        "It ran ~{hours:.0} hours a month over the last 30 days. An instance schedule (resource policy) that runs it 10 hours a day on weekdays pays for ~{working:.0} hours; disks are still billed."
+                    ),
+                    Some(s),
+                ));
+            }
+        }
+
+        // 2. Cheaper machine family with the same shape (not for VMs whose CPU is saturated).
+        if !busy && !mt.custom && !mt.shared_core && mt.accelerators.is_empty() && spec.gpus.is_empty() && spec.pricing != Pricing::Spot {
             let parts: Vec<&str> = mt.name.splitn(2, '-').collect();
             if parts.len() == 2 {
                 let rest = parts[1];
@@ -885,18 +960,27 @@ pub(crate) mod rules {
             let od = machine_hourly(ctx, &region, &mt, Pricing::OnDemand).map(|h| h * sud_multiplier(&mt.family, hours));
             let c1 = machine_hourly(ctx, &region, &mt, Pricing::Commit1Yr);
             let c3 = machine_hourly(ctx, &region, &mt, Pricing::Commit3Yr);
-            if let (Some(od), Some(c1), Some(c3)) = (od, c1, c3) {
-                let s1 = (od - c1) * hours * spec.count;
-                let s3 = (od - c3) * hours * spec.count;
+            // Share of the vCPUs already covered by active commitments.
+            let covered = if ctx.r.rtype == "google_compute_instance" { ctx.committed_fraction().unwrap_or(0.0) } else { 0.0 };
+            if let (Some(od), Some(c1), Some(c3)) = (od, c1, c3)
+                && covered < 0.99
+            {
+                let s1 = (od - c1) * hours * spec.count * (1.0 - covered);
+                let s3 = (od - c3) * hours * spec.count * (1.0 - covered);
                 if s3 > 5.0 {
+                    let already = if covered > 0.0 {
+                        format!(" Active commitments already cover {:.0}% of its vCPUs; the savings are for the rest.", covered * 100.0)
+                    } else {
+                        String::new()
+                    };
                     out.push(ctx.rec(
                         "compute-cud",
                         Severity::Info,
                         "Cover this always-on VM with a committed use discount",
                         format!(
-                            "A resource-based CUD for {} vCPU / {} GiB would save ~{}/mo (1 year) or ~{}/mo (3 years). CUDs apply across the project/billing account, so commit to your steady-state baseline.",
-                            machine::billed_vcpus(&mt) * spec.count,
-                            mt.memory_gb * spec.count,
+                            "A resource-based CUD for {} vCPU / {} GiB would save ~{}/mo (1 year) or ~{}/mo (3 years). CUDs apply across the project/billing account, so commit to your steady-state baseline.{already}",
+                            machine::billed_vcpus(&mt) * spec.count * (1.0 - covered),
+                            mt.memory_gb * spec.count * (1.0 - covered),
                             ctx.money(s1),
                             ctx.money(s3)
                         ),
@@ -925,7 +1009,6 @@ pub(crate) mod rules {
                 ));
             }
         }
-        let _ = cr;
         out
     }
 

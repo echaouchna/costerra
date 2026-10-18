@@ -9,21 +9,18 @@ use costerra::output::{self, Format};
 
 pub fn run(a: RunArgs, color: bool) -> Result<i32> {
     let config = load_config(&a)?;
-    if a.rabbit_review_dry_run {
-        let root = insights::review_root(&a.eval.path);
-        print!("{}", costerra::insights::review_dry_run(&root, &common::excludes(&a.eval, &config)));
-        return Ok(0);
-    }
     common::start_ui("Evaluating Terraform");
     let prefetch = prices::start_prefetch(&a, &config);
     let usage = load_usage(&a, &config)?;
     ui::phase("Evaluating Terraform");
     let projects = load_projects(&a.eval, &a.eval.path, &config)?;
     common::lint_usage(&usage, &projects);
+    let observing = insights::start_observed(&a, &config, &[&projects]);
     let pricer = prices::build_pricer(&a, &config, &[&projects], &usage, prefetch)?;
+    let observed = insights::finish_observed(observing);
     let pending = insights::start(&a, &config, &[&projects], pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
-    let mut report = price(&a, &projects, &config, &pricer, &usage);
+    let mut report = price(&a, &projects, &config, &pricer, &usage, observed.as_ref());
     insights::finish(pending, &mut report, &projects);
     ui::clear();
     let plan_diff = diff::from_plan(&report);

@@ -50,8 +50,16 @@ fn run(path: &Path) -> Option<Report> {
         Some(e) => UsageFile::load(&e.path()).expect("usage file"),
         None => UsageFile::default(),
     };
-    let engine =
-        Engine { pricer, list_pricer: None, usage_profile: None, examples: true, usage: &usage, config: &config, recommendations: true };
+    let engine = Engine {
+        pricer,
+        list_pricer: None,
+        usage_profile: None,
+        examples: true,
+        usage: &usage,
+        config: &config,
+        recommendations: true,
+        observed: None,
+    };
     Some(engine.report(&projects))
 }
 

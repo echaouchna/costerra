@@ -160,3 +160,105 @@ mod tests {
         assert_eq!(m.len(), 16);
     }
 }
+
+/// A local HTTP server answering canned responses, for tests of the Google
+/// API clients (no network nor credentials).
+#[cfg(test)]
+pub(crate) mod fake_http {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    /// A received request: path and decoded query parameters.
+    #[derive(Debug, Clone)]
+    pub struct Request {
+        pub path: String,
+        pub query: Vec<(String, String)>,
+        pub headers: Vec<(String, String)>,
+    }
+
+    impl Request {
+        pub fn param(&self, k: &str) -> Option<&str> {
+            self.query.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str())
+        }
+        pub fn header(&self, k: &str) -> Option<&str> {
+            self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str())
+        }
+    }
+
+    pub struct Server {
+        pub url: String,
+        pub requests: Arc<Mutex<Vec<Request>>>,
+    }
+
+    impl Server {
+        pub fn count(&self) -> usize {
+            self.requests.lock().unwrap().len()
+        }
+    }
+
+    fn decode(s: &str) -> String {
+        let b = s.as_bytes();
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                b'+' => out.push(b' '),
+                b'%' if i + 2 < b.len() => {
+                    out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap_or(b'?'));
+                    i += 2;
+                }
+                c => out.push(c),
+            }
+            i += 1;
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    /// Serve `handler(request) -> (status, JSON body)` until the test ends.
+    pub fn serve(handler: impl Fn(&Request) -> (u16, String) + Send + 'static) -> Server {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(vec![]));
+        let log = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let target = line.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let mut headers = vec![];
+                loop {
+                    let mut h = String::new();
+                    if reader.read_line(&mut h).unwrap_or(0) == 0 || h.trim().is_empty() {
+                        break;
+                    }
+                    if let Some((k, v)) = h.trim().split_once(':') {
+                        headers.push((k.trim().to_string(), v.trim().to_string()));
+                    }
+                }
+                let (path, qs) = target.split_once('?').unwrap_or((&target, ""));
+                let query = qs
+                    .split('&')
+                    .filter(|p| !p.is_empty())
+                    .map(|p| {
+                        let (k, v) = p.split_once('=').unwrap_or((p, ""));
+                        (decode(k), decode(v))
+                    })
+                    .collect();
+                let req = Request { path: path.to_string(), query, headers };
+                let (status, body) = handler(&req);
+                log.lock().unwrap().push(req);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        Server { url, requests }
+    }
+}

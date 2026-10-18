@@ -140,16 +140,13 @@ pub struct RunArgs {
     /// Skip optimization recommendations
     #[arg(long)]
     pub no_recommendations: bool,
-    /// Skip usage-based recommendations from Google Cloud Recommender and Rabbit
+    /// Skip usage-based recommendations from Google Cloud Recommender
     #[arg(long, env = "COSTERRA_NO_INSIGHTS", value_parser = FalseyValueParser::new())]
     pub no_insights: bool,
-    /// Run a Rabbit AI cost review: uploads the Terraform files (secrets redacted, .gitignore respected) to Rabbit and uses your Rabbit quota (cached per content)
-    #[arg(long, env = "COSTERRA_RABBIT_REVIEW", value_parser = FalseyValueParser::new())]
-    pub rabbit_review: bool,
-    /// List the files a Rabbit AI cost review would upload, then exit (nothing is sent)
-    #[arg(long)]
-    pub rabbit_review_dry_run: bool,
-    /// Quota project for the Recommender API (default: ADC quota_project_id)
+    /// Do not read the observed usage of deployed resources (Cloud Monitoring metrics, active commitments)
+    #[arg(long, env = "COSTERRA_NO_OBSERVED", value_parser = FalseyValueParser::new())]
+    pub no_observed: bool,
+    /// Quota project for the Recommender and Cloud Monitoring APIs (default: ADC quota_project_id)
     #[arg(long, env = "GOOGLE_CLOUD_QUOTA_PROJECT")]
     pub quota_project: Option<String>,
     /// Price usage-based resources without estimates with an example profile

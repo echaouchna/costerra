@@ -6,6 +6,36 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-18
+
+### Added
+- Observed usage: when the credentials allow it, the last 30 days of Cloud
+  Monitoring metrics (VM CPU and uptime, bucket and Cloud SQL storage, Cloud
+  Run requests) fill the usage keys the usage file does not set, and active
+  Compute Engine commitments are taken into account. Optional, cached for
+  6 hours; `--no-observed`, `COSTERRA_NO_OBSERVED` or `observed_usage: false`
+  turn it off. A `Usage` line shows how many resources were observed, and
+  notes say which permissions are missing.
+- Data-based rules: `compute-idle`, `compute-rightsize` and
+  `compute-schedule-nonprod`.
+- Every recommendation says what it is based on (`basis` in JSON: `code`,
+  `usage_file` or `observed`).
+
+### Changed
+- Commitment advice leaves out vCPUs already covered by active commitments,
+  and cheaper machine families are not proposed for VMs whose CPU is saturated.
+- A Google Cloud Recommender recommendation replaces costerra's advice of the
+  same kind for the same resource (rightsizing, idle resources, commitments).
+- The potential savings total includes Google recommendations matched to the
+  code (best option per resource).
+
+### Removed
+- Rabbit (followrabbit.ai) integration: saved recommendations, the AI cost
+  review (`--rabbit-review`, `--rabbit-review-dry-run`,
+  `COSTERRA_RABBIT_REVIEW`) and `.costerraignore`. The `rabbit_recommendations`
+  and `rabbit_review` keys of `costerra.yml` are now rejected as unknown keys:
+  remove them.
+
 ## [0.1.0] - 2026-10-18
 
 First public release.
@@ -65,5 +95,6 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/echaouchna/costerra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/echaouchna/costerra/releases/tag/v0.1.0

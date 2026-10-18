@@ -19,13 +19,9 @@ Security fixes are made on the latest release and the default branch.
 costerra reads Terraform / Terragrunt code and talks to a few APIs:
 
 * **Google Cloud** (Cloud Billing Catalog and Pricing APIs, Cloud Billing,
-  Recommender) with your Application Default Credentials or `COSTERRA_API_KEY`.
-  Access is read-only.
-* **Rabbit** (followrabbit.ai), only when a Rabbit API key is configured. The
-  saved-recommendation lookup sends the repository URL (credentials removed).
-  The opt-in AI review (`--rabbit-review`) uploads Terraform files: git-ignored
-  and excluded paths are skipped and secret-looking values are redacted;
-  `--rabbit-review-dry-run` shows what would be sent.
+  Recommender, Cloud Monitoring, Compute Engine commitments) with your
+  Application Default Credentials or `COSTERRA_API_KEY`. Access is read-only;
+  resource names of the code are sent to these APIs, never the code itself.
 * **Module sources** (Terraform registry, git, archives) are downloaded into
   the cache directory unless `--offline` is used.
 * Terragrunt `run_cmd()` is **disabled** unless `--allow-run-cmd` is passed:

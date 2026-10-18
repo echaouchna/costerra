@@ -2,8 +2,9 @@
 //! optimization rules.
 
 use crate::config::Config;
-use crate::cost::{CostedResource, ProjectReport, Recommendation, Report, Status, Summary, UsageExamples};
+use crate::cost::{Basis, CostedResource, ProjectReport, Recommendation, Report, Status, Summary, UsageExamples};
 use crate::hcl::value::{Map, Value};
+use crate::observed::Observed;
 use crate::pricing::query::Pricer;
 use crate::profiles::{self, Profile};
 use crate::project::Project;
@@ -11,7 +12,7 @@ use crate::resources::{Ctx, Env, is_free, registry};
 use crate::tf::evaluate::ResourceInstance;
 use crate::usage::UsageFile;
 use rayon::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 pub struct Engine<'a> {
@@ -25,6 +26,8 @@ pub struct Engine<'a> {
     pub usage: &'a UsageFile,
     pub config: &'a Config,
     pub recommendations: bool,
+    /// Usage observed in Google Cloud (fills keys missing from usage files).
+    pub observed: Option<&'a Observed>,
 }
 
 fn tokens(s: &str) -> impl Iterator<Item = String> + '_ {
@@ -97,7 +100,7 @@ impl Engine<'_> {
         project_env: Env,
         with_recs: bool,
     ) -> (Vec<CostedResource>, Vec<Recommendation>) {
-        self.estimate_with_usage(resources, project_env, with_recs, self.usage)
+        self.estimate_with_usage(resources, project_env, with_recs, self.usage, None)
     }
 
     fn estimate_with_usage(
@@ -106,6 +109,7 @@ impl Engine<'_> {
         project_env: Env,
         with_recs: bool,
         usage_file: &UsageFile,
+        project: Option<&str>,
     ) -> (Vec<CostedResource>, Vec<Recommendation>) {
         let default_region = self.config.default_region.as_deref().unwrap_or("us-central1");
         let results: Vec<(CostedResource, Vec<Recommendation>)> = resources
@@ -131,7 +135,16 @@ impl Engine<'_> {
                         vec![],
                     );
                 };
-                let explicit = usage_file.for_resource(&r.rtype, &r.address);
+                let mut explicit = usage_file.for_resource(&r.rtype, &r.address);
+                // Observed usage fills the keys the usage file does not set.
+                let observed = project.zip(self.observed).and_then(|(p, o)| o.get(p, &r.address));
+                let mut observed_keys: Vec<String> = vec![];
+                for (k, v) in observed.iter().flat_map(|o| o.usage.iter()) {
+                    if spec.usage.iter().any(|u| u.key == k) && !explicit.contains_key(k) {
+                        explicit.insert(k.clone(), Value::Number(*v));
+                        observed_keys.push(k.clone());
+                    }
+                }
                 // Usage keys of this resource that have no estimate but an example value.
                 let missing: Vec<&str> = spec
                     .usage
@@ -160,6 +173,9 @@ impl Engine<'_> {
                         siblings: resources,
                         warnings: RefCell::new(vec![]),
                         location: RefCell::new(None),
+                        observed,
+                        observed_keys: &observed_keys,
+                        basis: Cell::new(Basis::Code),
                     };
                     (spec.estimate)(&c)
                 };
@@ -173,6 +189,9 @@ impl Engine<'_> {
                     siblings: resources,
                     warnings: RefCell::new(r.warnings.clone()),
                     location: RefCell::new(None),
+                    observed,
+                    observed_keys: &observed_keys,
+                    basis: Cell::new(Basis::Code),
                 };
                 let base = (spec.estimate)(&ctx);
                 let usage_based = !missing.is_empty() && base.iter().any(|c| c.usage_based && c.monthly_cost.is_none());
@@ -226,8 +245,10 @@ impl Engine<'_> {
                 let mut recs = vec![];
                 if with_recs {
                     if let Some(rules) = spec.rules {
+                        ctx.reset_basis();
                         recs.extend(rules(&ctx, &cr));
                     }
+                    ctx.reset_basis();
                     recs.extend(crate::recommend::generic(&ctx, &cr));
                     recs.retain(|x| !self.config.is_rule_disabled(&x.id));
                 }
@@ -255,14 +276,14 @@ impl Engine<'_> {
             Some(l) => self.usage.overlay(l),
             None => self.usage.clone(),
         };
-        let (resources, recommendations) = self.estimate_with_usage(&p.resources, env, self.recommendations, &usage);
+        let (resources, recommendations) = self.estimate_with_usage(&p.resources, env, self.recommendations, &usage, Some(&p.name));
         let mut recommendations = group_recommendations(recommendations);
         recommendations.sort_by(|a, b| {
             b.severity.cmp(&a.severity).then(b.monthly_savings.unwrap_or(0.0).total_cmp(&a.monthly_savings.unwrap_or(0.0)))
         });
         let (past_monthly_cost, past_resources) = match &p.prior {
             Some(prior) => {
-                let (past, _) = self.estimate_with_usage(prior, env, false, &usage);
+                let (past, _) = self.estimate_with_usage(prior, env, false, &usage, Some(&p.name));
                 (Some(past.iter().map(|r| r.monthly_cost).sum()), Some(past))
             }
             None => (None, None),
@@ -271,7 +292,7 @@ impl Engine<'_> {
             name: p.name.clone(),
             path: p.path.to_string_lossy().to_string(),
             kind: format!("{:?}", p.kind).to_lowercase(),
-            monthly_cost: resources.iter().map(|r| r.monthly_cost).sum(),
+            monthly_cost: crate::cost::sum(resources.iter().map(|r| r.monthly_cost)),
             list_monthly_cost: self.list_pricer.map(|_| resources.iter().map(|r| r.list_monthly_cost.unwrap_or(r.monthly_cost)).sum()),
             usage_examples: example_totals(&resources, |r| r.usage_examples.as_ref(), |r| r.monthly_cost),
             list_usage_examples: self.list_pricer.and_then(|_| {
@@ -320,12 +341,12 @@ fn example_totals(
     if !resources.iter().any(|r| examples(r).is_some()) {
         return None;
     }
-    let sum = |f: fn(&UsageExamples) -> f64| resources.iter().map(|r| examples(r).map(f).unwrap_or_else(|| cost(r))).sum();
+    let sum = |f: fn(&UsageExamples) -> f64| crate::cost::sum(resources.iter().map(|r| examples(r).map(f).unwrap_or_else(|| cost(r))));
     Some(UsageExamples { small: sum(|e| e.small), medium: sum(|e| e.medium), large: sum(|e| e.large) })
 }
 
 /// Strip the instance key of an address: `a.b[0]` / `a.b["k"]` -> `a.b[*]`.
-fn address_group(addr: &str) -> String {
+pub fn address_group(addr: &str) -> String {
     match addr.rfind('[') {
         Some(i) if addr.ends_with(']') && !addr[i..].contains('.') => format!("{}[*]", &addr[..i]),
         _ => addr.to_string(),
@@ -371,7 +392,7 @@ fn project_example_totals(
     if !projects.iter().any(|p| examples(p).is_some()) {
         return None;
     }
-    let sum = |f: fn(&UsageExamples) -> f64| projects.iter().map(|p| examples(p).map(f).unwrap_or_else(|| cost(p))).sum();
+    let sum = |f: fn(&UsageExamples) -> f64| crate::cost::sum(projects.iter().map(|p| examples(p).map(f).unwrap_or_else(|| cost(p))));
     Some(UsageExamples { small: sum(|e| e.small), medium: sum(|e| e.medium), large: sum(|e| e.large) })
 }
 
@@ -408,7 +429,7 @@ pub fn build_report(projects: Vec<ProjectReport>, pricer: &Pricer) -> Report {
         pricing_date: pricer.catalog.as_ref().map(|c| c.fetched_at),
         billing_account: pricer.billing_account().map(str::to_string),
         generated_at: crate::pricing::sync::now(),
-        monthly_cost: projects.iter().map(|p| p.monthly_cost).sum(),
+        monthly_cost: crate::cost::sum(projects.iter().map(|p| p.monthly_cost)),
         usage_examples: project_example_totals(&projects, |p| p.usage_examples.as_ref(), |p| p.monthly_cost),
         list_usage_examples: pricer.billing_account().and_then(|_| {
             project_example_totals(&projects, |p| p.list_usage_examples.as_ref(), |p| p.list_monthly_cost.unwrap_or(p.monthly_cost))
@@ -423,6 +444,7 @@ pub fn build_report(projects: Vec<ProjectReport>, pricer: &Pricer) -> Report {
         free_tier_included: pricer.include_free_tier,
         external_recommendations: vec![],
         insight_notes: vec![],
+        observed: None,
         usage_profile: None,
         list_monthly_cost: pricer.billing_account().map(|_| projects.iter().map(|p| p.list_monthly_cost.unwrap_or(p.monthly_cost)).sum()),
         potential_savings,

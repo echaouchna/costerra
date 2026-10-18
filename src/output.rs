@@ -775,6 +775,16 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
             );
         }
     }
+    if let Some(o) = &report.observed {
+        let _ = writeln!(
+            out,
+            " {} observed for {} resources over the last {} days ({})",
+            st.paint("Usage      ").dim().s(),
+            st.paint(o.resources.to_string()).cyan().s(),
+            o.window_days,
+            o.sources.join(", ")
+        );
+    }
     let s = &report.summary;
     let unsupported = format!("{} not supported", s.unsupported);
     let _ = writeln!(
@@ -923,7 +933,6 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
 fn source_tag(st: &Style, source: &str) -> String {
     match source {
         "gcp" => format!("{} ", st.paint("Google").blue().bold().s()),
-        "rabbit" => format!("{} ", st.paint("Rabbit").yellow().bold().s()),
         _ => format!("{} ", st.paint("costerra").cyan().s()),
     }
 }
@@ -938,11 +947,7 @@ pub fn source_description(r: &Recommendation) -> (String, Option<String>) {
         };
     let text = match r.source.as_str() {
         "gcp" => format!("Google Cloud Recommender{}, based on observed usage", reference.map(|x| format!(" ({x})")).unwrap_or_default()),
-        "rabbit" => {
-            let kind = r.id.strip_prefix("rabbit-").unwrap_or(&r.id).replace('_', " ");
-            format!("Rabbit (followrabbit.ai) · {kind}{}", reference.map(|x| format!(" · {x}")).unwrap_or_default())
-        }
-        _ => format!("costerra static analysis of the code{}", reference.map(|x| format!(" · {x}")).unwrap_or_default()),
+        _ => format!("costerra{}, {}", reference.map(|x| format!(" {x}")).unwrap_or_default(), r.basis.describe()),
     };
     (text, details.map(str::to_string))
 }
@@ -1191,6 +1196,15 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
         _ => "Public list prices.".to_string(),
     };
     let _ = writeln!(out, "\n<sub>{pricing}</sub>");
+    if let Some(o) = &report.observed {
+        let _ = writeln!(
+            out,
+            "<sub>Usage observed for {} resources over the last {} days ({}).</sub>",
+            o.resources,
+            o.window_days,
+            o.sources.join(", ")
+        );
+    }
     let s = &report.summary;
     let _ = writeln!(
         out,
