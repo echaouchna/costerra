@@ -85,7 +85,7 @@
           </div>
           <div class="strip reveal" style="--d:.3s">
             <span class="strip-p">$</span>
-            <code id="hero-install">cargo install --locked --git https://github.com/echaouchna/costerra</code>
+            <code id="hero-install">cargo install costerra</code>
             <button class="copy" data-copy-target="hero-install" aria-label="Copy install command">copy</button>
           </div>
           <ul class="hero-meta reveal" style="--d:.38s">
@@ -526,20 +526,27 @@
             <span class="sec-mark">§ 06 — Install</span>
             <h2>Up and running <em>in under a minute.</em></h2>
           </div>
-          <p>Prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>
+          <p>A crate on crates.io, prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>
         </header>
 
         <div class="install-grid">
           <div class="tabs folder reveal" data-tabs>
             <div class="tab-list" role="tablist">
               <button role="tab" class="on" data-tab="cargo">Cargo</button>
+              <button role="tab" data-tab="git">Git</button>
               <button role="tab" data-tab="docker">Docker</button>
               <button role="tab" data-tab="bin">Binary</button>
             </div>
             <div class="tab-panel on" data-panel="cargo">
               <div class="code-card">
                 <div class="code-head"><span>Rust 1.89 or newer</span><button class="copy" data-copy-target="code-cargo">copy</button></div>
-<pre id="code-cargo"><span class="p">$</span> cargo install --locked --git https://github.com/echaouchna/costerra</pre>
+<pre id="code-cargo"><span class="p">$</span> cargo install costerra</pre>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="git">
+              <div class="code-card">
+                <div class="code-head"><span>Latest main · Rust 1.89 or newer</span><button class="copy" data-copy-target="code-git">copy</button></div>
+<pre id="code-git"><span class="p">$</span> cargo install --locked --git https://github.com/echaouchna/costerra</pre>
               </div>
             </div>
             <div class="tab-panel" data-panel="docker">

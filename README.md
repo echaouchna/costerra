@@ -5,6 +5,7 @@
 # costerra
 
 [![CI](https://github.com/echaouchna/costerra/actions/workflows/ci.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/costerra.svg)](https://crates.io/crates/costerra)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV 1.89](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](Cargo.toml)
 [![Website](https://img.shields.io/badge/website-costerra.echaouchna.dev-e5482f.svg)](https://costerra.echaouchna.dev/)
@@ -47,12 +48,18 @@ Project: live/prod/app (terragrunt)
 
 ## Installation
 
+* **From [crates.io](https://crates.io/crates/costerra)** (Rust 1.89 or newer):
+
+  ```sh
+  cargo install costerra
+  ```
+
 * **Release binaries** (Linux x86_64 / aarch64, macOS Intel / Apple silicon):
   download a `costerra-<version>-<target>.tar.gz` from the [releases page](https://github.com/echaouchna/costerra/releases),
   check it against `SHA256SUMS` (and its build provenance with
   `gh attestation verify <file> --repo echaouchna/costerra`), and put `costerra` on
   your `PATH`.
-* **From source** (Rust 1.89 or newer):
+* **From source** (Rust 1.89 or newer), to track the latest `main`:
 
   ```sh
   cargo install --locked --git https://github.com/echaouchna/costerra     # or, from a clone:
