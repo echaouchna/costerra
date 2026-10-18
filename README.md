@@ -3,7 +3,7 @@
 [![CI](https://github.com/echaouchna/costerra/actions/workflows/ci.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV 1.89](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](Cargo.toml)
-[![Website](https://img.shields.io/badge/website-echaouchna.github.io%2Fcosterra-e5482f.svg)](https://echaouchna.github.io/costerra/)
+[![Website](https://img.shields.io/badge/website-costerra.echaouchna.dev-e5482f.svg)](https://costerra.echaouchna.dev/)
 
 Fast cost estimates and optimization insights for **Google Cloud** Terraform
 and Terragrunt code. costerra is written in Rust and is an alternative to

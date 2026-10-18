@@ -2,6 +2,7 @@ name: Website
 
 # Publishes the static homepage in site/ to GitHub Pages.
 # One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Custom domain: costerra.echaouchna.dev (Settings → Pages → Custom domain).
 
 on:
   push:
