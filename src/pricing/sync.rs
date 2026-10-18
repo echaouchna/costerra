@@ -360,7 +360,7 @@ pub async fn fetch_account_prices(
     loop {
         let j = get_json(&client, &auth, &url, &[("pageSize", "5000"), ("currencyCode", currency), ("pageToken", &token)])
             .await
-            .with_context(|| format!("fetching prices of billing account {billing_account} (requires billing.billingAccountPrice.get, e.g. Billing Account Viewer)"))?;
+            .with_context(|| format!("fetching prices of billing account {billing_account} (requires billing.billingAccountPrices.list, e.g. Billing Account Viewer)"))?;
         for p in j["billingAccountPrices"].as_array().into_iter().flatten() {
             if let Some((id, ap)) = parse_account_price(p) {
                 out.insert(id, ap);

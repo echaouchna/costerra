@@ -315,6 +315,7 @@ impl Finder<'_> {
         // its for_each keys, and the keys its code uses (`var.apps["api"]`).
         let env = p.name.rsplit_once(" (").map(|(_, e)| e.trim_end_matches(')').to_string());
         let mut selectors: Vec<String> = env.iter().cloned().collect();
+        selectors.extend(module.iter().cloned());
         selectors.extend(quoted(&r.address));
         for (_, l) in self.source_lines(p, r, module.as_deref(), change) {
             selectors.extend(quoted(&l.text));
@@ -363,13 +364,13 @@ impl Finder<'_> {
         }
         if let Some(best) = found.iter().map(|(_, s)| *s).max() {
             let mut top: Vec<Location> = found.into_iter().filter(|(_, s)| *s == best).map(|(l, _)| l).collect();
-            // Several lines: keep the one in this resource's entry (`backend = { … }`).
+            // Several lines: keep the one in this resource's entry or module
+            // call (`backend = { … }`, `module "backend" { … }`), else the
+            // ones with an entry of the resource (`prod = 1`).
             if top.len() > 1 {
-                let mine: Vec<Location> = top
-                    .iter()
-                    .filter(|l| l.entry.is_some() || self.enclosing_key(&l.file, l.line).is_some_and(|k| selectors.contains(&k)))
-                    .cloned()
-                    .collect();
+                let inside: Vec<Location> =
+                    top.iter().filter(|l| self.enclosing_key(&l.file, l.line).is_some_and(|k| selectors.contains(&k))).cloned().collect();
+                let mine = if inside.is_empty() { top.iter().filter(|l| l.entry.is_some()).cloned().collect() } else { inside };
                 if !mine.is_empty() {
                     top = mine;
                 }
@@ -457,17 +458,18 @@ impl Finder<'_> {
         out
     }
 
-    /// The key of the map that contains a line (`backend` for a line inside
-    /// `backend = { … }`).
+    /// The key of the map or the name of the block that contains a line
+    /// (`backend` for a line inside `backend = { … }` or `module "backend" { … }`).
     fn enclosing_key(&mut self, file: &Path, line: usize) -> Option<String> {
         let src = self.read(file)?;
         let lines: Vec<&str> = src.lines().collect();
-        let open = regex::Regex::new(r#"^\s*"?([A-Za-z0-9_.-]+)"?\s*[=:]?\s*\{"#).expect("valid regex");
+        let open = regex::Regex::new(r#"^\s*(?:[A-Za-z_][A-Za-z0-9_-]*(?:\s+"[^"]*")*\s+"([^"]+)"|"?([A-Za-z0-9_.-]+)"?\s*[=:]?)\s*\{"#)
+            .expect("valid regex");
         let mut depth = 0i32;
         for l in lines[..line.saturating_sub(1).min(lines.len())].iter().rev() {
             depth += l.matches('}').count() as i32 - l.matches('{').count() as i32;
             if depth < 0 {
-                return open.captures(l).map(|c| c[1].to_string());
+                return open.captures(l).and_then(|c| c.get(1).or(c.get(2))).map(|m| m.as_str().to_string());
             }
         }
         None
@@ -672,6 +674,30 @@ module "backend" {
         let [l] = locs.as_slice() else { panic!("{locs:?}") };
         assert_eq!((l.file.to_str(), l.line), (Some("terraform.tfvars"), 6));
         assert_eq!(l.changed(&c).unwrap(), "min_instance_count = 0");
+    }
+
+    #[test]
+    fn the_module_call_of_the_resource_among_several_files() {
+        let call = |name: &str| {
+            format!(
+                "module \"{name}\" {{\n  source        = \"./mod\"\n  env           = var.env\n  memory        = {{ dev = \"1Gi\", prod = \"1Gi\" }}\n  min_instances = {{ dev = 0, prod = 1 }}[var.env]\n}}\n"
+            )
+        };
+        let files = [
+            ("mod/main.tf", SERVICE_MODULE.to_string()),
+            ("variables.tf", "variable \"env\" {}\n".to_string()),
+            ("backend.tf", call("backend")),
+            ("web.tf", call("web_proxy")),
+            ("environments/dev.tfvars", "env = \"dev\"\n".to_string()),
+            ("environments/prod.tfvars", "env = \"prod\"\n".to_string()),
+        ];
+        let files: Vec<(&str, &str)> = files.iter().map(|(f, s)| (*f, s.as_str())).collect();
+        let c = change("template.0.scaling.0.min_instance_count", "1", "0");
+        let (locs, note) = locate_in(&files, ". (prod)", "module.web_proxy.google_cloud_run_v2_service.this", &c);
+        assert!(note.is_none(), "{note:?}");
+        let [l] = locs.as_slice() else { panic!("{locs:?}") };
+        assert_eq!((l.file.to_str(), l.line, l.entry.as_deref()), (Some("web.tf"), 5, Some("prod")));
+        assert_eq!(l.changed(&c).unwrap(), "min_instances = { dev = 0, prod = 0 }[var.env]");
     }
 
     #[test]

@@ -197,9 +197,15 @@ struct RefreshState {
     /// No refresh before this unix time (after the API throttled us).
     #[serde(default)]
     throttled_until: u64,
+    /// "identity|account" -> unix time the contract prices were refused.
+    #[serde(default)]
+    denied: HashMap<String, u64>,
 }
 
 const THROTTLE_COOLDOWN_SECS: u64 = 60;
+/// How long a refusal of the contract prices is remembered, as for observed
+/// usage and recommendations.
+pub const DENIED_TTL_SECS: u64 = 6 * 3600;
 /// Most SKUs refreshed in one run (oldest first); the rest follow in later runs.
 pub const REFRESH_BUDGET: usize = 100;
 
@@ -248,6 +254,30 @@ pub fn mark_throttled(cache_dir: &Path) {
 /// True while in the cool-down after being throttled.
 pub fn cooling_down(cache_dir: &Path) -> bool {
     load_state(cache_dir).throttled_until > super::sync::now()
+}
+
+fn denied_key(account: &str) -> String {
+    format!("{}|{account}", super::sync::impersonation().unwrap_or_default())
+}
+
+/// Remember that the contract prices of `account` were refused (HTTP 403),
+/// or forget it (`denied: false`) once they are read.
+pub fn mark_denied(cache_dir: &Path, account: &str, denied: bool) {
+    let now = super::sync::now();
+    update_state(cache_dir, |s| {
+        s.denied.retain(|_, at| now.saturating_sub(*at) < DENIED_TTL_SECS);
+        if denied {
+            s.denied.insert(denied_key(account), now);
+        } else {
+            s.denied.remove(&denied_key(account));
+        }
+    });
+}
+
+/// True if the contract prices of `account` were refused less than
+/// `DENIED_TTL_SECS` ago.
+pub fn denied(cache_dir: &Path, account: &str) -> bool {
+    load_state(cache_dir).denied.get(&denied_key(account)).is_some_and(|at| super::sync::now().saturating_sub(*at) < DENIED_TTL_SECS)
 }
 
 fn load_state(cache_dir: &Path) -> RefreshState {

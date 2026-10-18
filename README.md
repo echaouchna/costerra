@@ -525,8 +525,9 @@ costerra prices with **your** billing account when it can. It detects the
 account linked to the GCP projects referenced by your code (Cloud Billing
 `projects/{id}/billingInfo`), or falls back to the only open billing account
 you can access. The result is cached for a day. Contract prices (negotiated
-discounts, Cloud Billing Pricing API) require `billing.billingAccountPrice.get`,
-which is included in the Billing Account Viewer role.
+discounts, Cloud Billing Pricing API) require `billing.billingAccountPrices.list`
+and `billing.billingAccountPrice.get`, which are included in the Billing Account
+Viewer role.
 
 * The full contract price list is downloaded on first use and re-synced when it
   is more than 7 days old (`costerra pricing sync --billing-account <id>` does it
@@ -594,7 +595,8 @@ not an API key) and these permissions:
 |---|---|---|---|
 | Detect the billing account of the projects in your code | `projects/{id}/billingInfo` | `resourcemanager.projects.get` on the project | Viewer (`roles/viewer`) or Browser (`roles/browser`) on the project |
 | Fall back to the only open billing account you can see | `billingAccounts.list` | `billing.accounts.list` | Billing Account Viewer |
-| Read contract prices | `billingAccounts/{id}/skus/-/prices` | `billing.billingAccountPrice.get` | Billing Account Viewer |
+| Read contract prices | `billingAccounts/{id}/skus/-/prices` | `billing.billingAccountPrices.list` | Billing Account Viewer |
+| Refresh the contract prices of the SKUs a run uses | `billingAccounts/{id}/skus/{sku}/price` | `billing.billingAccountPrice.get` | Billing Account Viewer |
 
 **Billing Account Viewer** (`roles/billing.viewer`) on the billing account is
 what reads the prices. To find the account, costerra also needs Viewer or
@@ -602,7 +604,7 @@ Browser on the projects, unless you can see only one billing account or you
 set it with `--billing-account`, `COSTERRA_BILLING_ACCOUNT` or
 `billing_account:` (detection is then skipped). When a permission is missing, costerra
 falls back to list prices; the `Pricing` line under the table says which
-prices were used.
+prices were used. A refused billing account is not asked again for 6 hours.
 
 Typical setups:
 

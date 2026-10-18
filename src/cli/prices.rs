@@ -91,10 +91,31 @@ fn load_catalog(currency: &str, billing_account: Option<&str>, offline: bool) ->
         let age = existing.as_ref().map(|c| sync::now().saturating_sub(c.fetched_at) / 86400);
         match (existing, age) {
             (Some(c), Some(age)) if age <= ACCOUNT_CATALOG_MAX_AGE_DAYS || offline => return Ok(c),
+            // Refused recently: not asked again until the refusal expires.
+            (Some(c), _) if account::denied(&cache, ba) => return Ok(c),
+            (None, _) if account::denied(&cache, ba) => {
+                tracing::info!("contract prices of billing account {ba} refused recently, using list prices")
+            }
             (existing, _) if !offline => {
                 ui::phase(&format!("Downloading the price list of billing account {ba}"));
                 match download_catalog(currency, Some(ba)) {
-                    Ok(c) => return Ok(c),
+                    Ok(c) => {
+                        account::mark_denied(&cache, ba, false);
+                        return Ok(c);
+                    }
+                    Err(e) if format!("{e:#}").contains("HTTP 403") => {
+                        tracing::debug!("{e:#}");
+                        account::mark_denied(&cache, ba, true);
+                        notice(
+                            "warning",
+                            format!(
+                                "no access to the contract prices of billing account {ba} (needs billing.billingAccountPrices.list, e.g. Billing Account Viewer): using list prices, not asked again for 6 hours"
+                            ),
+                        );
+                        if let Some(c) = existing {
+                            return Ok(c);
+                        }
+                    }
                     Err(e) => {
                         notice("warning", format!("could not download prices of billing account {ba}: {e:#}"));
                         if let Some(c) = existing {

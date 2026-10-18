@@ -98,9 +98,10 @@ impl Paint {
 }
 
 pub fn money(currency: &str, v: f64) -> String {
-    let neg = v < 0.0;
     let abs = v.abs();
     let s = format!("{abs:.2}");
+    // A residue that rounds to zero (`-1e-15`) is not negative.
+    let neg = v < 0.0 && s != "0.00";
     let (int, frac) = s.split_once('.').unwrap_or((&s, "00"));
     let mut grouped = String::new();
     for (i, c) in int.chars().enumerate() {
@@ -1040,8 +1041,12 @@ fn md_savings(cur: &str, s: f64) -> String {
     if s < 0.0 { format!("+{} (costs more)", money(cur, -s)) } else { money(cur, s) }
 }
 
-pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
+/// The Markdown report (PR comments), with the rightsizing section when a
+/// plan is given.
+pub fn markdown(report: &Report, diff: Option<&DiffReport>, plan: Option<&crate::rightsize::Plan>) -> String {
     let cur = &report.currency;
+    // Projects are named as in the terminal table (`terraform (prod)`, not `. (prod)`).
+    let title = |name: &str| project_label(report, name);
     let mut out = String::new();
     // Hidden marker: CI finds (and updates) its previous comment with it.
     let _ = writeln!(out, "{COMMENT_MARKER}\n### 💰 costerra cost estimate\n");
@@ -1064,8 +1069,14 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
             );
             let _ = writeln!(out, "| Project | Previous | New | Diff |\n|---|---:|---:|---:|");
             for p in d.projects.iter().filter(|p| p.diff.abs() >= 0.005 || !p.resources.is_empty()) {
-                let _ =
-                    writeln!(out, "| {} | {} | {} | {} |", md_escape(&p.name), money(cur, p.past), money(cur, p.new), signed(cur, p.diff));
+                let _ = writeln!(
+                    out,
+                    "| {} | {} | {} | {} |",
+                    md_escape(&title(&p.name)),
+                    money(cur, p.past),
+                    money(cur, p.new),
+                    signed(cur, p.diff)
+                );
             }
             let changed: Vec<_> = d.projects.iter().flat_map(|p| p.resources.iter().map(move |r| (p, r))).collect();
             if !changed.is_empty() {
@@ -1080,7 +1091,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
                     let _ = writeln!(
                         out,
                         "| {} | `{}` | {ch} | {} | {} | {} |",
-                        md_escape(&p.name),
+                        md_escape(&title(&p.name)),
                         md_escape(&r.address),
                         money(cur, r.past),
                         money(cur, r.new),
@@ -1117,7 +1128,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
                     let _ = writeln!(
                         out,
                         "| {} | {} | {} |",
-                        md_escape(&p.name),
+                        md_escape(&project_title(p)),
                         money(cur, p.monthly_cost),
                         money(cur, p.list_monthly_cost.unwrap_or(p.monthly_cost))
                     );
@@ -1125,7 +1136,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
             } else {
                 let _ = writeln!(out, "| Project | Monthly cost |\n|---|---:|");
                 for p in &report.projects {
-                    let _ = writeln!(out, "| {} | {} |", md_escape(&p.name), money(cur, p.monthly_cost));
+                    let _ = writeln!(out, "| {} | {} |", md_escape(&project_title(p)), money(cur, p.monthly_cost));
                 }
             }
         }
@@ -1143,7 +1154,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
         let _ = writeln!(out, "\n<details><summary>Top resources</summary>\n");
         let _ = writeln!(out, "| Project | Resource | Monthly cost |\n|---|---|---:|");
         for (p, r) in all.iter().take(25) {
-            let _ = writeln!(out, "| {} | `{}` | {} |", md_escape(p), md_escape(&r.address), money(cur, r.monthly_cost));
+            let _ = writeln!(out, "| {} | `{}` | {} |", md_escape(&title(p)), md_escape(&r.address), money(cur, r.monthly_cost));
         }
         let _ = writeln!(out, "\n</details>");
     }
@@ -1185,7 +1196,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
                 out,
                 "| {icon} | `{}`<br><sub>{}</sub> | **{}**<br><sub>{}</sub> | <sub>{}{}</sub> | {} |",
                 md_escape(&r.address),
-                md_escape(p),
+                md_escape(&title(p)),
                 md_escape(&r.title),
                 md_escape(&r.detail),
                 md_escape(&src),
@@ -1236,6 +1247,9 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
             "\n<sub>{} more recommendations for unchanged resources: run `costerra breakdown` to see them.</sub>",
             all_recs.len() - recs.len()
         );
+    }
+    if let Some(p) = plan {
+        out.push_str(&rightsizing_markdown(p, report));
     }
     let pricing = match (&report.billing_account, report.list_monthly_cost) {
         (Some(ba), Some(list)) => format!(
@@ -1515,4 +1529,18 @@ pub fn rightsizing_markdown(plan: &crate::rightsize::Plan, report: &Report) -> S
     let _ =
         writeln!(out, "\nTotal after rightsizing: {} → **{}/month**", money(cur, plan.monthly_cost), money(cur, plan.monthly_cost_after));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amounts_that_round_to_zero_have_no_sign() {
+        assert_eq!(money("USD", -1.77e-15), "$0.00");
+        assert_eq!(money("USD", -0.004), "$0.00");
+        assert_eq!(money("USD", -0.005), "-$0.01");
+        assert_eq!(money("USD", -1234.5), "-$1,234.50");
+        assert_eq!(money("CHF", -1e-12), "0.00 CHF");
+    }
 }

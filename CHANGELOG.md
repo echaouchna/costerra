@@ -6,6 +6,30 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-18
+
+### Fixed
+- `costerra diff`: a root module with one project per environment
+  (`environments/*.tfvars`) was named after the temporary checkout on the
+  base side (`costerra-base-XXXXXX (dev)`), so every environment showed as
+  removed and added. The base checkout now has the same repository root as
+  the head one, which also fixes `get_repo_root()` and the discovery of
+  `costerra.yml` and `costerra-usage.yml` on the base side.
+- `--rightsize`: when the same value is set in several module calls, the
+  line in the module call of the resource is kept (`module "web_proxy"`),
+  instead of every line with a matching entry. The note names the blocks of
+  the remaining lines rather than `(in ?, ?)`.
+- `--rightsize`: a cost after rightsizing that rounds to zero is shown as
+  `$0.00`, not `-$0.00`.
+- Contract prices: when the billing account is detected but its prices are
+  refused (HTTP 403), costerra now prints a single-line warning, uses list
+  prices and does not ask again for 6 hours. Before, every run downloaded the
+  whole price list again and printed the raw API error. The error now names
+  the permission the bulk download checks (`billing.billingAccountPrices.list`).
+- `--format markdown`: projects are named as in the terminal table
+  (`terraform (prod)` rather than `. (prod)`), and the rightsizing section
+  comes before the footer.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
@@ -189,7 +213,8 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/echaouchna/costerra/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/echaouchna/costerra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/echaouchna/costerra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/echaouchna/costerra/releases/tag/v0.1.0

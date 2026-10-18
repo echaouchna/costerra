@@ -42,6 +42,9 @@ fn checkout_base(path: &Path, git_ref: &str) -> Result<(tempfile::TempDir, PathB
         bail!("cannot read {git_ref}: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     unpacked.with_context(|| format!("extracting {git_ref}"))?;
+    // Mark the repository root, as in the head checkout: project names,
+    // `get_repo_root()` and config discovery stop at `.git`.
+    std::fs::create_dir_all(dir.path().join(".git"))?;
     let base_path = dir.path().join(rel);
     Ok((dir, base_path))
 }
@@ -101,7 +104,7 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
 
     let text = match a.format {
         Format::Json => serde_json::to_string_pretty(&serde_json::json!({ "diff": dr, "report": head }))? + "\n",
-        Format::Markdown => output::markdown(&head, Some(&dr)),
+        Format::Markdown => output::markdown(&head, Some(&dr), None),
         Format::Table => {
             let st = style(a, color);
             let mut t = output::diff_table(&dr, &st);

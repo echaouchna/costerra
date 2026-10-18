@@ -56,13 +56,7 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
             }
             serde_json::to_string_pretty(&j)? + "\n"
         }
-        Format::Markdown => {
-            let mut t = output::markdown(&report, plan_diff.as_ref());
-            if let Some(p) = &plan {
-                t.push_str(&output::rightsizing_markdown(p, &report));
-            }
-            t
-        }
+        Format::Markdown => output::markdown(&report, plan_diff.as_ref(), plan.as_ref()),
         Format::Table => {
             let st = style(a, color);
             let mut t = output::table(&report, &st);
