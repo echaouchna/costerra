@@ -569,6 +569,10 @@ only credentials. costerra looks for them in this order:
    a service account, workload identity);
 3. `gcloud auth print-access-token`.
 
+The API key is optional: if you are logged in with gcloud, you do not need one.
+It is mainly for CI jobs that have no Google identity. Google refuses requests
+without any credentials, so you need one of the three.
+
 To create an API key, restricted to the Cloud Billing API (the Catalog API is
 free; its quota is charged to the key's project):
 
