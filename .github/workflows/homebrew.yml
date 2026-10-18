@@ -66,6 +66,8 @@ jobs:
             os linux aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
             printf '\n  def install\n'
             printf '    bin.install "costerra"\n'
+            # Completions in Homebrew's bash, zsh and fish directories, loaded by default.
+            printf '    generate_completions_from_executable(bin/"costerra", "completions", shells: [:bash, :zsh, :fish])\n'
             printf '  end\n'
             printf '\n  test do\n'
             printf '    assert_match version.to_s, shell_output("#{bin}/costerra --version")\n'

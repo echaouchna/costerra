@@ -62,8 +62,11 @@ Project: live/prod/app (terragrunt)
   [echaouchna/tap](https://github.com/echaouchna/homebrew-tap) tap:
 
   ```sh
+  brew trust echaouchna/tap
   brew install echaouchna/tap/costerra
   ```
+
+  The formula installs the bash, zsh and fish completions.
 
 * **Release binaries** (Linux x86_64 / aarch64, macOS Intel / Apple silicon):
   download a `costerra-<version>-<target>.tar.gz` from the [releases page](https://github.com/echaouchna/costerra/releases),
@@ -85,6 +88,19 @@ Project: live/prod/app (terragrunt)
     ghcr.io/echaouchna/costerra breakdown .
   just docker-build && just docker-run breakdown .     # build and run it locally
   ```
+
+### Shell completions
+
+`costerra completions <shell>` prints the completion script for bash, zsh,
+fish, elvish, powershell, nu or xonsh (Homebrew installs bash, zsh and fish):
+
+```sh
+source <(costerra completions bash)                                        # ~/.bashrc
+costerra completions zsh > "${fpath[1]}/_costerra"                         # zsh
+costerra completions fish > ~/.config/fish/completions/costerra.fish       # fish
+costerra completions nu | save -f ($nu.data-dir | path join completions costerra.nu)  # nu, then `use` it in config.nu
+execx($(costerra completions xonsh))                                       # ~/.xonshrc
+```
 
 ## Quick start
 

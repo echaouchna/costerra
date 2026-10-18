@@ -3,6 +3,7 @@
 mod args;
 mod breakdown;
 mod common;
+mod completions;
 mod diff;
 mod insights;
 mod prices;
@@ -44,6 +45,7 @@ pub fn main() {
         Cmd::Usage(UsageCmd::Init { eval, out, force }) => usage::init(&eval, &out, force),
         Cmd::Usage(UsageCmd::Profiles { rtype }) => usage::profiles(rtype),
         Cmd::Resources { filter } => usage::resources(filter),
+        Cmd::Completions { shell } => completions::print(shell),
     };
     match res {
         Ok(code) => std::process::exit(code),

@@ -17,6 +17,8 @@ include = ["/src/**/*.rs", "/data/**", "/Cargo.toml", "/Cargo.lock", "/README.md
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4.6.11"
+clap_complete_nushell = "4.6.2"
 dirs = "7.0.0"
 fastrand = "2.5.0"
 flate2 = "1.1.10"

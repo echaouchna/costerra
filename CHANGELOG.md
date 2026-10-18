@@ -13,7 +13,11 @@ All notable changes to costerra are documented here. The format follows
   repeated or comma-separated, e.g. `--format table,markdown:costerra.md`
   prints the table in the CI log and writes the MR comment to a file. At most
   one format goes to stdout (or to `--out`). A table written to a file has no
-  colors.
+  colors. `console` is an alias of `table`.
+- `costerra completions <shell>`: completion scripts for bash, zsh, fish,
+  elvish, powershell, nu and xonsh. The Homebrew formula installs the bash,
+  zsh and fish completions.
+- Colored `--help` and usage errors (off with `NO_COLOR`).
 
 ### Fixed
 - `costerra diff`: a root module with one project per environment

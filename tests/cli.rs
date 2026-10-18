@@ -453,3 +453,24 @@ fn diff_of_a_root_module_with_environments() {
         assert!(p["past"].as_f64().unwrap() > 0.0 && p["new"].as_f64().unwrap() > p["past"].as_f64().unwrap(), "{p}");
     }
 }
+
+#[test]
+fn completions_for_every_shell() {
+    let cache = cache_dir();
+    for (shell, want) in [
+        ("bash", "_costerra"),
+        ("zsh", "#compdef costerra"),
+        ("fish", "complete -c costerra"),
+        ("elvish", "costerra"),
+        ("powershell", "costerra"),
+        ("nu", "export extern costerra"),
+        ("xonsh", "add_one_completer(\"costerra\""),
+    ] {
+        let o = costerra(cache.path(), &testdata(""), &["completions", shell]);
+        assert!(o.status.success(), "{shell}: {}", text(&o.stderr));
+        assert!(text(&o.stdout).contains(want), "{shell}: {}", text(&o.stdout));
+    }
+    // The xonsh completer offers the formats of `--format`.
+    let o = costerra(cache.path(), &testdata(""), &["completions", "xonsh"]);
+    assert!(text(&o.stdout).contains(r#""--format":[["table","#), "{}", text(&o.stdout));
+}

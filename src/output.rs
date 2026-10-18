@@ -6,6 +6,8 @@ use std::fmt::Write;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Format {
+    /// The terminal table
+    #[value(alias = "console")]
     Table,
     Json,
     Markdown,

@@ -1,12 +1,23 @@
 //! Command-line arguments.
 
-use clap::builder::FalseyValueParser;
-use clap::{Args, Parser, Subcommand};
+use clap::builder::styling::{AnsiColor, Effects, Styles};
+use clap::builder::{FalseyValueParser, PossibleValue, TypedValueParser};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use costerra::output::Format;
 use std::path::PathBuf;
 
+/// Colors of `--help` and of usage errors.
+const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default())
+    .error(AnsiColor::Red.on_default().effects(Effects::BOLD))
+    .valid(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .invalid(AnsiColor::Yellow.on_default().effects(Effects::BOLD));
+
 #[derive(Parser)]
-#[command(name = "costerra", version, about = "Cost estimates and optimization insights for GCP Terraform / Terragrunt")]
+#[command(name = "costerra", version, about = "Cost estimates and optimization insights for GCP Terraform / Terragrunt", styles = STYLES)]
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Cmd,
@@ -64,6 +75,29 @@ pub enum Cmd {
         /// Only show resources matching this substring
         filter: Option<String>,
     },
+    /// Print the shell completion script
+    ///
+    /// bash: `source <(costerra completions bash)` in ~/.bashrc;
+    /// zsh: `costerra completions zsh > "${fpath[1]}/_costerra"`;
+    /// fish: `costerra completions fish > ~/.config/fish/completions/costerra.fish`;
+    /// nu: `costerra completions nu | save -f ($nu.data-dir | path join completions costerra.nu)`, then `use` it in config.nu;
+    /// xonsh: `execx($(costerra completions xonsh))` in ~/.xonshrc.
+    /// Homebrew installs the bash, zsh and fish completions.
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    Elvish,
+    Powershell,
+    Nu,
+    Xonsh,
 }
 
 /// `--var name=value`: the `=` is required.
@@ -86,9 +120,30 @@ fn parse_output(s: &str) -> Result<Output, String> {
         Some((f, p)) if !p.is_empty() => (f, Some(PathBuf::from(p))),
         _ => (s, None),
     };
-    let format = <Format as clap::ValueEnum>::from_str(name, true)
+    let format = Format::from_str(name, true)
         .map_err(|_| format!("unknown format '{name}' (expected table, json or markdown, optionally followed by :FILE)"))?;
     Ok(Output { format, file })
+}
+
+/// `--format` parser: `FORMAT[:FILE]`, with the formats listed for help and
+/// shell completions.
+#[derive(Clone)]
+struct OutputParser;
+
+impl TypedValueParser for OutputParser {
+    type Value = Output;
+
+    fn parse_ref(&self, cmd: &clap::Command, arg: Option<&clap::Arg>, value: &std::ffi::OsStr) -> Result<Output, clap::Error> {
+        let s = value.to_str().ok_or_else(|| clap::Error::new(clap::error::ErrorKind::InvalidUtf8).with_cmd(cmd))?;
+        parse_output(s).map_err(|e| {
+            let arg = arg.map(|a| a.to_string()).unwrap_or_else(|| "--format".into());
+            clap::Error::raw(clap::error::ErrorKind::InvalidValue, format!("invalid value '{s}' for '{arg}': {e}\n")).with_cmd(cmd)
+        })
+    }
+
+    fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
+        Some(Box::new(Format::value_variants().iter().filter_map(|f| f.to_possible_value())))
+    }
 }
 
 fn parse_duration(s: &str) -> Result<u64, String> {
@@ -134,10 +189,11 @@ pub struct EvalArgs {
 pub struct RunArgs {
     #[command(flatten)]
     pub eval: EvalArgs,
-    /// Output format: table, json or markdown, optionally written to a file
-    /// (`markdown:costerra.md`). Repeat it, or separate with commas, for
-    /// several outputs: `--format table,markdown:costerra.md`
-    #[arg(short, long, value_name = "FORMAT[:FILE]", value_delimiter = ',', value_parser = parse_output, default_value = "table")]
+    /// Output format: table (the terminal table, alias console), json or
+    /// markdown, optionally written to a file (`markdown:costerra.md`).
+    /// Repeat it, or separate with commas, for several outputs:
+    /// `--format table,markdown:costerra.md`
+    #[arg(short, long, value_name = "FORMAT[:FILE]", value_delimiter = ',', value_parser = OutputParser, default_value = "table", hide_possible_values = true)]
     pub format: Vec<Output>,
     /// Write the output of the format without a file to this file instead of stdout
     #[arg(short, long)]
