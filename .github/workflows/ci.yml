@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs and site only: nothing to build, test or scan (the site has its own workflow).
+    paths-ignore:
+      - "site/**"
+      - "docs/**"
+      - "**.md"
+      - LICENSE
+      - NOTICE
   pull_request:
   workflow_dispatch:
 

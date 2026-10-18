@@ -3,12 +3,25 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    # Docs and site only: nothing to build, test or scan (the site has its own workflow).
+    paths-ignore: &docs
+      - "site/**"
+      - "docs/**"
+      - "**.md"
+      - LICENSE
+      - NOTICE
   pull_request:
+    paths-ignore: *docs
   schedule:
     - cron: "41 4 * * 3"
 
 permissions:
   contents: read
+
+# A newer push supersedes the analysis in progress (5 minutes for Rust).
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   analyze:
