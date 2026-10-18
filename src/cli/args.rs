@@ -74,6 +74,23 @@ fn parse_var(s: &str) -> Result<(String, String), String> {
     }
 }
 
+/// An output: a format, written to a file or to stdout (`markdown:costerra.md`).
+#[derive(Clone, Debug)]
+pub struct Output {
+    pub format: Format,
+    pub file: Option<PathBuf>,
+}
+
+fn parse_output(s: &str) -> Result<Output, String> {
+    let (name, file) = match s.split_once(':') {
+        Some((f, p)) if !p.is_empty() => (f, Some(PathBuf::from(p))),
+        _ => (s, None),
+    };
+    let format = <Format as clap::ValueEnum>::from_str(name, true)
+        .map_err(|_| format!("unknown format '{name}' (expected table, json or markdown, optionally followed by :FILE)"))?;
+    Ok(Output { format, file })
+}
+
 fn parse_duration(s: &str) -> Result<u64, String> {
     costerra::util::parse_duration_secs(s)
 }
@@ -117,9 +134,12 @@ pub struct EvalArgs {
 pub struct RunArgs {
     #[command(flatten)]
     pub eval: EvalArgs,
-    #[arg(short, long, value_enum, default_value = "table")]
-    pub format: Format,
-    /// Write output to a file instead of stdout
+    /// Output format: table, json or markdown, optionally written to a file
+    /// (`markdown:costerra.md`). Repeat it, or separate with commas, for
+    /// several outputs: `--format table,markdown:costerra.md`
+    #[arg(short, long, value_name = "FORMAT[:FILE]", value_delimiter = ',', value_parser = parse_output, default_value = "table")]
+    pub format: Vec<Output>,
+    /// Write the output of the format without a file to this file instead of stdout
     #[arg(short, long)]
     pub out: Option<PathBuf>,
     /// Usage file with estimates for usage-based costs
@@ -193,6 +213,20 @@ pub struct BreakdownArgs {
 }
 
 impl RunArgs {
+    /// The outputs, with `--out` given to the format without a file. At most
+    /// one format goes to stdout.
+    pub fn outputs(&self) -> anyhow::Result<Vec<Output>> {
+        let mut outputs = self.format.clone();
+        let mut to_stdout = outputs.iter_mut().filter(|o| o.file.is_none());
+        match (to_stdout.next(), to_stdout.next(), &self.out) {
+            (Some(_), Some(_), _) => anyhow::bail!("only one --format can go to stdout: give the others a file (`markdown:costerra.md`)"),
+            (Some(o), None, Some(out)) => o.file = Some(out.clone()),
+            (None, _, Some(_)) => anyhow::bail!("--out needs a --format without a file"),
+            _ => {}
+        }
+        Ok(outputs)
+    }
+
     /// Whether recommendations are shown.
     pub fn show_recommendations(&self) -> bool {
         (self.recommendations || self.details) && !self.no_recommendations

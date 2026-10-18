@@ -7,7 +7,7 @@ use costerra::config::Config;
 use costerra::cost::{ObservedSummary, Report};
 use costerra::engine::Engine;
 use costerra::observed::Observed;
-use costerra::output::Style;
+use costerra::output::{Format, Style};
 use costerra::pricing::catalog;
 use costerra::pricing::query::Pricer;
 use costerra::project::{self, LoadOptions, Project};
@@ -227,19 +227,22 @@ pub fn price(
     report
 }
 
-pub fn style(a: &RunArgs, color: bool) -> Style {
+/// Terminal table style; no colors in a file.
+pub fn style(a: &RunArgs, color: bool, to_file: bool) -> Style {
     let all = a.show_all || a.details;
-    Style { color: color && a.out.is_none(), show_all: all, show_warnings: all, group: !a.no_group, details: a.details }
+    Style { color: color && !to_file, show_all: all, show_warnings: all, group: !a.no_group, details: a.details }
 }
 
-pub fn emit(a: &RunArgs, text: String) -> Result<()> {
-    match &a.out {
-        Some(p) => std::fs::write(p, text).with_context(|| format!("writing {}", p.display())),
-        None => {
-            print!("{text}");
-            Ok(())
+/// Render each output (`--format`) and write it to its file or to stdout.
+pub fn emit_all(a: &RunArgs, mut render: impl FnMut(Format, bool) -> Result<String>) -> Result<()> {
+    for o in a.outputs()? {
+        let text = render(o.format, o.file.is_some())?;
+        match &o.file {
+            Some(p) => std::fs::write(p, text).with_context(|| format!("writing {}", p.display()))?,
+            None => print!("{text}"),
         }
     }
+    Ok(())
 }
 
 /// `--fail-above` / `policies.max_monthly_cost`: exit code 2 when exceeded.

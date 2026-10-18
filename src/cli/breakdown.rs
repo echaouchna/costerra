@@ -1,7 +1,7 @@
 //! `costerra breakdown`
 
 use super::args::BreakdownArgs;
-use super::common::{self, check_total_policy, emit, load_config, load_projects, load_usage, price, style};
+use super::common::{self, check_total_policy, emit_all, load_config, load_projects, load_usage, price, style};
 use super::{insights, prices, ui};
 use anyhow::{Result, bail};
 use costerra::output::{self, Format};
@@ -9,6 +9,7 @@ use costerra::{diff, rightsize};
 
 pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
     let a = &b.run;
+    a.outputs()?;
     ui::set_details(a.details);
     if b.rightsize && (a.eval.offline || a.no_observed) {
         bail!("--rightsize needs the observed usage of the resources: remove --offline / --no-observed");
@@ -42,35 +43,36 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
     ui::clear();
     common::report_auth_problems();
     let plan_diff = diff::from_plan(&report);
-    let text = match a.format {
-        Format::Json => {
-            let mut j = serde_json::to_value(&report)?;
-            if let Some(obj) = j.as_object_mut() {
-                // A plan JSON also carries the diff between prior and planned state.
+    emit_all(a, |format, to_file| {
+        Ok(match format {
+            Format::Json => {
+                let mut j = serde_json::to_value(&report)?;
+                if let Some(obj) = j.as_object_mut() {
+                    // A plan JSON also carries the diff between prior and planned state.
+                    if let Some(d) = &plan_diff {
+                        obj.insert("plan_diff".into(), serde_json::to_value(d)?);
+                    }
+                    if let Some(p) = &plan {
+                        obj.insert("rightsizing".into(), serde_json::to_value(p)?);
+                    }
+                }
+                serde_json::to_string_pretty(&j)? + "\n"
+            }
+            Format::Markdown => output::markdown(&report, plan_diff.as_ref(), plan.as_ref()),
+            Format::Table => {
+                let st = style(a, color, to_file);
+                let mut t = output::table(&report, &st);
                 if let Some(d) = &plan_diff {
-                    obj.insert("plan_diff".into(), serde_json::to_value(d)?);
+                    t.push('\n');
+                    t.push_str(&output::diff_table(d, &st));
                 }
                 if let Some(p) = &plan {
-                    obj.insert("rightsizing".into(), serde_json::to_value(p)?);
+                    let notes = observed.as_ref().map(|o| o.notes.as_slice()).unwrap_or_default();
+                    t.push_str(&output::rightsizing(p, &report, &st, notes));
                 }
+                t
             }
-            serde_json::to_string_pretty(&j)? + "\n"
-        }
-        Format::Markdown => output::markdown(&report, plan_diff.as_ref(), plan.as_ref()),
-        Format::Table => {
-            let st = style(a, color);
-            let mut t = output::table(&report, &st);
-            if let Some(d) = &plan_diff {
-                t.push('\n');
-                t.push_str(&output::diff_table(d, &st));
-            }
-            if let Some(p) = &plan {
-                let notes = observed.as_ref().map(|o| o.notes.as_slice()).unwrap_or_default();
-                t.push_str(&output::rightsizing(p, &report, &st, notes));
-            }
-            t
-        }
-    };
-    emit(a, text)?;
+        })
+    })?;
     Ok(check_total_policy(a, &config, &report))
 }

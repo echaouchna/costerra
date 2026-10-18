@@ -387,3 +387,69 @@ fn rightsize_suggests_more_capacity_when_saturated() {
     let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--recommendations", "-f", "markdown"]);
     assert!(text(&o.stdout).contains("(costs more)"), "{}", text(&o.stdout));
 }
+
+#[test]
+fn several_formats_in_one_run() {
+    let cache = cache_dir();
+    let out = tempfile::tempdir().unwrap();
+    let (md, json) = (out.path().join("costerra.md"), out.path().join("report.json"));
+    let formats = format!("table,markdown:{},json:{}", md.display(), json.display());
+    let mut args = vec!["breakdown", "terragrunt", "-f", &formats];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), &testdata(""), &args);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(text(&o.stdout).contains("google_compute_instance.app[*] ×4"), "{}", text(&o.stdout));
+    assert!(std::fs::read_to_string(&md).unwrap().contains("### 💰 costerra cost estimate"));
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert!((j["monthly_cost"].as_f64().unwrap() - 1291.46).abs() < 0.01);
+
+    // `--out` goes to the format without a file.
+    let table = out.path().join("table.txt");
+    let json_out = format!("json:{}", json.display());
+    let mut args = vec!["breakdown", "terragrunt", "-f", "table", "-f", &json_out, "--out", table.to_str().unwrap()];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), &testdata(""), &args);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(o.stdout.is_empty());
+    assert!(std::fs::read_to_string(&table).unwrap().contains("google_compute_instance.app[*] ×4"));
+
+    for (bad, want) in [(vec!["-f", "table,markdown"], "only one --format can go to stdout"), (vec!["-f", "toml"], "unknown format 'toml'")]
+    {
+        let mut args = vec!["breakdown", "terragrunt"];
+        args.extend(bad);
+        args.extend(OFFLINE);
+        let o = costerra(cache.path(), &testdata(""), &args);
+        assert!(!o.status.success() && text(&o.stderr).contains(want), "{}", text(&o.stderr));
+    }
+}
+
+#[test]
+fn diff_of_a_root_module_with_environments() {
+    let cache = cache_dir();
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join("environments")).unwrap();
+    let main = repo.path().join("main.tf");
+    std::fs::write(
+        &main,
+        "variable \"env\" {}\nresource \"google_compute_instance\" \"vm\" {\n  name         = \"vm-${var.env}\"\n  machine_type = \"e2-small\"\n  zone         = \"europe-west1-b\"\n  boot_disk {\n    initialize_params { image = \"debian-cloud/debian-12\" }\n  }\n  network_interface { network = \"default\" }\n}\n",
+    )
+    .unwrap();
+    for env in ["dev", "prod"] {
+        std::fs::write(repo.path().join(format!("environments/{env}.tfvars")), format!("env = \"{env}\"\n")).unwrap();
+    }
+    git(repo.path(), &["init", "-q", "-b", "main"]);
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "base"]);
+    std::fs::write(&main, std::fs::read_to_string(&main).unwrap().replace("e2-small", "e2-medium")).unwrap();
+    let mut args = vec!["diff", ".", "--base", "main", "-f", "json"];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), repo.path(), &args);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    let j: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    // Each environment is matched with itself: no project removed and added.
+    let names: Vec<&str> = j["diff"]["projects"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+    for p in j["diff"]["projects"].as_array().unwrap() {
+        assert!(p["past"].as_f64().unwrap() > 0.0 && p["new"].as_f64().unwrap() > p["past"].as_f64().unwrap(), "{p}");
+    }
+}

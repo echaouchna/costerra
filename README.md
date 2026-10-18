@@ -258,9 +258,15 @@ resource type does not use (`monthly_hrz`), with the list of valid keys.
 costerra breakdown . --format json --out report.json
 costerra breakdown . --format markdown
 costerra diff . --base origin/main --format markdown --out comment.md
+costerra diff . --base origin/main --format table,markdown:comment.md   # table in the log, comment in a file
 costerra diff . --baseline report.json            # compare with a saved report
 costerra breakdown plan.json                       # plan JSON includes the diff (`plan_diff` in JSON)
 ```
+
+`--format` takes `FORMAT[:FILE]` and can be repeated or comma-separated, so
+one run can print the table and write the Markdown and JSON reports. At most
+one format goes to stdout, or to `--out`. A table written to a file has no
+colors.
 
 `diff --base` reads the base ref with `git archive`: it never writes to the
 repository, so it also works on read-only checkouts and in containers.

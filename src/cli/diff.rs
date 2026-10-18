@@ -1,7 +1,7 @@
 //! `costerra diff`
 
 use super::args::DiffArgs;
-use super::common::{self, check_total_policy, emit, load_config, load_projects, load_usage, price, style};
+use super::common::{self, check_total_policy, emit_all, load_config, load_projects, load_usage, price, style};
 use super::ui::{self, notice};
 use super::{insights, prices};
 use anyhow::{Context, Result, bail};
@@ -51,6 +51,7 @@ fn checkout_base(path: &Path, git_ref: &str) -> Result<(tempfile::TempDir, PathB
 
 pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let a = &d.run;
+    a.outputs()?;
     ui::set_details(a.details);
     common::start_ui("Evaluating Terraform");
     let config = load_config(a)?;
@@ -102,20 +103,21 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     ui::clear();
     common::report_auth_problems();
 
-    let text = match a.format {
-        Format::Json => serde_json::to_string_pretty(&serde_json::json!({ "diff": dr, "report": head }))? + "\n",
-        Format::Markdown => output::markdown(&head, Some(&dr), None),
-        Format::Table => {
-            let st = style(a, color);
-            let mut t = output::diff_table(&dr, &st);
-            if a.show_recommendations() && head.projects.iter().any(|p| !p.recommendations.is_empty()) {
-                t.push('\n');
-                t.push_str(&output::summary(&head, &st));
+    emit_all(a, |format, to_file| {
+        Ok(match format {
+            Format::Json => serde_json::to_string_pretty(&serde_json::json!({ "diff": dr, "report": head }))? + "\n",
+            Format::Markdown => output::markdown(&head, Some(&dr), None),
+            Format::Table => {
+                let st = style(a, color, to_file);
+                let mut t = output::diff_table(&dr, &st);
+                if a.show_recommendations() && head.projects.iter().any(|p| !p.recommendations.is_empty()) {
+                    t.push('\n');
+                    t.push_str(&output::summary(&head, &st));
+                }
+                t
             }
-            t
-        }
-    };
-    emit(a, text)?;
+        })
+    })?;
 
     let mut code = 0;
     if let Some(l) = d.fail_increase_above.or(config.policies.max_increase)

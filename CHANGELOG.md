@@ -8,6 +8,13 @@ All notable changes to costerra are documented here. The format follows
 
 ## [0.3.1] - 2026-10-18
 
+### Added
+- Several outputs in one run: `--format` takes `FORMAT[:FILE]` and can be
+  repeated or comma-separated, e.g. `--format table,markdown:costerra.md`
+  prints the table in the CI log and writes the MR comment to a file. At most
+  one format goes to stdout (or to `--out`). A table written to a file has no
+  colors.
+
 ### Fixed
 - `costerra diff`: a root module with one project per environment
   (`environments/*.tfvars`) was named after the temporary checkout on the
