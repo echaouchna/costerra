@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>costerra — Google Cloud cost estimates for Terraform &amp; Terragrunt</title>
-  <meta name="description" content="Fast cost estimates and optimization insights for Google Cloud Terraform and Terragrunt code. Written in Rust. No terraform init, no credentials, 120+ savings rules, made for CI.">
+  <meta name="description" content="Fast cost estimates and optimization insights for Google Cloud Terraform and Terragrunt code. Written in Rust. No terraform init, no project access, 120+ savings rules, made for CI.">
   <meta name="theme-color" content="#f2ede3">
   <meta property="og:title" content="costerra — know what your Google Cloud costs before you apply">
   <meta property="og:description" content="Static cost estimates for Terraform & Terragrunt on GCP, in milliseconds. 122 priced resource types, 120+ optimization rules, cost diffs in every pull request.">
@@ -77,7 +77,7 @@
           <p class="lede reveal" style="--d:.14s">
             costerra reads your Terraform and Terragrunt code, prices every resource against the official Cloud Billing
             catalog in milliseconds, and marks up the bill with ways to spend less. You don't need
-            <code>terraform&nbsp;init</code> or any credentials.
+            <code>terraform&nbsp;init</code> or access to your projects.
           </p>
           <div class="hero-ctas reveal" style="--d:.22s">
             <a class="btn btn-ink" href="#install">Install costerra <span class="arr">→</span></a>
@@ -90,7 +90,7 @@
           </div>
           <ul class="hero-meta reveal" style="--d:.38s">
             <li><b>61 ms</b> for 350 resources</li>
-            <li><b>0</b> credentials needed</li>
+            <li><b>0</b> credentials to read code</li>
             <li><b>120+</b> savings rules</li>
           </ul>
         </div>
@@ -139,7 +139,7 @@
         <div class="reading reveal" style="--d:.24s">
           <span class="r-label">Credentials</span>
           <span class="r-num"><span class="odo" data-odo="0"></span><small>needed</small></span>
-          <span class="r-note">static HCL evaluation</span>
+          <span class="r-note">static HCL evaluation; prices need only an API key</span>
         </div>
       </div>
       <div class="container works-with reveal">
@@ -202,7 +202,7 @@
           <article class="spec-cell span-2 reveal">
             <span class="spec-n">03</span>
             <h3>Your contract prices</h3>
-            <p>costerra detects your billing account and prices with your negotiated discounts. Public list prices stay visible next to them.</p>
+            <p>costerra detects your billing account and prices with your negotiated discounts. Public list prices stay visible next to them. Needs Billing Account Viewer on the account; without it, list prices are used.</p>
             <div class="fig compare">
               <div class="cmp"><span>list</span><div class="cmp-bar pub"></div><b>$129.81</b></div>
               <div class="cmp"><span>yours</span><div class="cmp-bar you"></div><b>$104.20</b></div>
@@ -572,7 +572,7 @@
           <ol class="steps reveal" style="--d:.1s">
             <li>
               <span class="step-n">i.</span>
-              <div><b>Sync prices</b><code>costerra pricing sync</code><small>Uses gcloud ADC or <code>COSTERRA_API_KEY</code>. This happens automatically on first run.</small></div>
+              <div><b>Sync prices</b><code>costerra pricing sync</code><small>Uses gcloud ADC or <code>COSTERRA_API_KEY</code>. This happens automatically on first run. <a class="link-u" href="https://github.com/echaouchna/costerra#permissions" target="_blank" rel="noopener">Permissions →</a></small></div>
             </li>
             <li>
               <span class="step-n">ii.</span>

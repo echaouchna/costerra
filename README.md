@@ -78,7 +78,7 @@ Project: live/prod/app (terragrunt)
 ## Quick start
 
 ```sh
-# 1. Download prices (uses Application Default Credentials / gcloud, or an API key)
+# 1. Download prices (uses Application Default Credentials / gcloud, or an API key; see Permissions)
 costerra pricing sync                     # or: COSTERRA_API_KEY=... costerra pricing sync
 
 # 2. Estimate a Terraform or Terragrunt repository (or a subdirectory)
@@ -421,6 +421,45 @@ Override the account with `--billing-account <id>`, `COSTERRA_BILLING_ACCOUNT`
 or `billing_account:` in `costerra.yml`. Use `--list-prices` (or
 `billing_account: none`) for public prices only. Without permissions or
 credentials (e.g. in CI with an API key), costerra silently uses list prices.
+
+## Permissions
+
+**List prices** (Cloud Billing Catalog API) are public: no IAM role is needed,
+only credentials. costerra looks for them in this order:
+
+1. an API key (`--api-key` / `COSTERRA_API_KEY`), created in a project where
+   the **Cloud Billing API** (`cloudbilling.googleapis.com`) is enabled;
+2. Application Default Credentials (`gcloud auth application-default login`,
+   a service account, workload identity);
+3. `gcloud auth print-access-token`.
+
+**Contract prices** (Cloud Billing Pricing API) need OAuth credentials (2 or 3,
+not an API key) and these permissions:
+
+| Step | API call | Permission | Granted by |
+|---|---|---|---|
+| Detect the billing account of the projects in your code | `projects/{id}/billingInfo` | `resourcemanager.projects.get` on the project | Viewer, Billing Account Viewer |
+| Fall back to the only open billing account you can see | `billingAccounts.list` | `billing.accounts.list` | Billing Account Viewer |
+| Read contract prices | `billingAccounts/{id}/skus/-/prices` | `billing.billingAccountPrice.get` | Billing Account Viewer |
+
+Granting **Billing Account Viewer** (`roles/billing.viewer`) on the billing
+account is enough. With `--billing-account`, `COSTERRA_BILLING_ACCOUNT` or
+`billing_account:`, detection is skipped. When a permission is missing, costerra
+falls back to list prices; the `Pricing` line under the table says which
+prices were used.
+
+Typical setups:
+
+* **Local:** `gcloud auth application-default login`. You get contract prices
+  if you are Billing Account Viewer.
+* **CI, list prices:** `COSTERRA_API_KEY`.
+* **CI, contract prices:** a service account (workload identity federation)
+  with `roles/billing.viewer` on the billing account, and
+  `COSTERRA_BILLING_ACCOUNT` set.
+
+[Recommendations](#usage-based-recommendations-google-cloud-recommender-rabbit)
+use the Recommender API, which needs the Recommender viewer roles on the
+projects and, with user credentials, a quota project where that API is enabled.
 
 ## Pricing details
 
