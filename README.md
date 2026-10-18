@@ -5,6 +5,9 @@
 # costerra
 
 [![CI](https://github.com/echaouchna/costerra/actions/workflows/ci.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/echaouchna/costerra/badge)](https://scorecard.dev/viewer/?uri=github.com/echaouchna/costerra)
+[![Security scans](https://github.com/echaouchna/costerra/actions/workflows/security.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/security.yml)
+[![CodeQL](https://github.com/echaouchna/costerra/actions/workflows/codeql.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/codeql.yml)
 [![crates.io](https://img.shields.io/crates/v/costerra.svg)](https://crates.io/crates/costerra)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MSRV 1.89](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](Cargo.toml)

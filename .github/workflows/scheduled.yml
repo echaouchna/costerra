@@ -1,8 +1,9 @@
 name: Scheduled checks
 
-# Weekly: new advisories for the locked dependencies, vulnerabilities of the
-# published image, and catalog drift (SKUs renamed or removed by Google make
-# cost models lose their price) when COSTERRA_API_KEY is configured.
+# Weekly: new RustSec advisories for the locked dependencies (cargo-deny), and
+# catalog drift (SKUs renamed or removed by Google make cost models lose their
+# price) when COSTERRA_API_KEY is configured. osv-scanner and the image scan
+# are in the Security scans workflow, which uploads their findings.
 
 on:
   schedule:
@@ -27,31 +28,6 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check advisories
-      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
-        with:
-          scan-args: |-
-            scan
-            source
-            --recursive
-            ./
-
-  image:
-    name: Published image vulnerabilities
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: Image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:latest" >> "$GITHUB_ENV"
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE }}
-          scanners: vuln
-          exit-code: "1"
-        env:
-          TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
   catalog-drift:
     name: Catalog drift

@@ -1,0 +1,101 @@
+name: Security scans
+
+# Vulnerabilities of the locked dependencies, secrets in the repository and
+# vulnerabilities of the published image, on main and weekly (new advisories
+# for unchanged code). Findings are uploaded to the Security tab (code
+# scanning alerts, closed when fixed), and the job still fails on them.
+# Pull requests are gated by the `audit` job of the CI workflow.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "53 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: Dependencies and secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: osv-scanner
+        id: osv
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            scan
+            source
+            --recursive
+            --format=sarif
+            --output=osv.sarif
+            ./
+      - name: trivy (vulnerabilities and secrets)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          format: sarif
+          output: trivy.sarif
+          exit-code: "1"
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        if: always() && hashFiles('osv.sarif') != ''
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        if: always() && hashFiles('trivy.sarif') != ''
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-fs
+      - name: Fail on findings
+        if: steps.osv.outcome == 'failure' || steps.trivy.outcome == 'failure'
+        run: |
+          echo "::error::vulnerabilities or secrets found: see the Security tab (code scanning)"
+          exit 1
+
+  image:
+    name: Published image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:latest" >> "$GITHUB_ENV"
+      - name: trivy (image vulnerabilities)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "1"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Fail on findings
+        if: steps.trivy.outcome == 'failure'
+        run: |
+          echo "::error::vulnerabilities found in ${IMAGE}: see the Security tab (code scanning)"
+          exit 1
