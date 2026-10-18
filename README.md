@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/assets/costerra-icon-v2-256.png" alt="costerra — a C-shaped mountain ridge sculpted into terracotta and charcoal terrain" width="144" height="144">
+</p>
+
 # costerra
 
 [![CI](https://github.com/echaouchna/costerra/actions/workflows/ci.yml/badge.svg)](https://github.com/echaouchna/costerra/actions/workflows/ci.yml)

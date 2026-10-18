@@ -59,7 +59,7 @@ em { font-style: italic; }
 .nav-inner { display: flex; align-items: center; gap: 28px; height: 66px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font: 600 1.42rem/1 var(--serif); letter-spacing: -.02em; font-variation-settings: "opsz" 72; }
 .brand img { transition: transform .6s var(--ease); }
-.brand:hover img { transform: rotate(-90deg); }
+.brand:hover img { transform: rotate(-6deg); }
 .nav-links { display: flex; gap: 2px; margin-left: 12px; }
 .nav-links a { position: relative; padding: .4em .7em; font: 500 .9rem var(--sans); color: var(--ink-2); transition: color .2s; }
 .nav-links a i { font: 400 .66rem var(--mono); font-style: normal; color: var(--ink-3); margin-right: 5px; vertical-align: .25em; }

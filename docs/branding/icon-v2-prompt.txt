@@ -1,0 +1,13 @@
+Generated with the built-in image_gen tool, with transparent_background=true.
+Reference: site/assets/costerra-icon.png
+Master asset: site/assets/costerra-icon-v2.png
+Smaller PNG exports preserve alpha transparency.
+
+Use case: logo-brand
+Asset type: revised square costerra project icon for README and website, version 2.
+Input image 1: edit target and visual reference for the C silhouette, warm terracotta and charcoal identity, rounded-square icon shape, restrained premium craftsmanship.
+Primary request: Transform the icon into a single continuous sculpted terrain tile. The entire rounded square is a miniature terracotta-and-charcoal mountainous landscape, and a clearly readable capital C is formed by a tall horseshoe-shaped mountain ridge sculpted out of that same terrain. The C is the mountain itself, with a descending network of broad contour terraces and naturally angular ridgelines integrated into the ground. Its central bowl is a deep charcoal caldera, opening to the right through a valley. The land rises gradually from the square's edges into the C ridge, so it is visibly one continuous landform.
+Composition: preserve square canvas and rounded tile silhouette, transparent outside the tile, tight framing, three-quarter overhead orthographic view that preserves a bold readable C opening at three o'clock. The ridge dominates about 75% of the tile. Broad terracotta upper slopes, dark charcoal lower valleys and recessed terrain, warm copper highlights on the highest ridges. Make the whole tile tactile and geological, refined like a sculpted topographical relief model.
+Style: beautiful premium 3D bas-relief icon, matte fired clay and dark volcanic stone, crisp broad contours, subtle geological faceting, controlled shadows. Strong simple silhouette readable when small. Rich depth while keeping the icon clean and intentional.
+Colors: terracotta #e5482f and muted clay variations, charcoal #16140f and dark volcanic stone. Remove the ivory color entirely. Remove the separate survey dot entirely. All visible elements belong to the continuous terrain.
+Constraints: no separate extruded letter placed on a plain background, no cream or white upper faces, no lettering or text, no symbol placed on top of terrain, no trees, buildings, clouds or sky, no water, no loose objects, no map labels, no tiny line clutter, no presentation mockup. Only the finished single icon. Genuine transparent alpha beyond the rounded-square landform.

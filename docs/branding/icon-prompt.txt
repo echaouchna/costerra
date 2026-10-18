@@ -1,0 +1,13 @@
+Generated with the built-in image_gen tool, with transparent_background=true.
+Master asset: site/assets/costerra-icon.png
+Smaller PNG exports preserve alpha transparency.
+
+Use case: logo-brand
+Asset type: one finished square project icon for costerra, an open-source Rust CLI that estimates Google Cloud infrastructure costs from Terraform and Terragrunt; for a GitHub README, website branding and favicon.
+Primary request: Design a beautiful, distinctive, meticulously crafted icon: a bold sculptural capital C made from three nested, terraced topographic landform bands. The C is the single memorable silhouette, its open right-hand cut unmistakable. The stepped contours evoke terrain, infrastructure layers and cost surveying. Integrate a small vermilion survey-point disc into the open interior, with generous separation. The overall result should feel like a premium modern cartographic instrument, understated and editorial.
+Style/medium: refined almost-flat bas-relief graphic, clean geometric curves with slight organic topographic character, crisp smooth edges, broad solid shapes, restrained depth from terracotta sidewalls and warm cream upper faces. No thin contour-line clutter. Strong, legible at 32px.
+Composition/framing: one large centered emblem on a dark charcoal rounded-square tile, front-facing orthographic, absolutely square canvas, tile fills 94% of canvas, rounded corners about 20% radius, transparent outside the tile. Emblem occupies about 76% of tile with ample uniform padding. C faces right, open at three o'clock. No extra views.
+Color palette: existing project colors charcoal #16140f, warm ivory #f2ede3, vermilion #e5482f, subtle warm terra-cotta shading only.
+Lighting/mood: quiet precision, subtle dimensional relief, matte surfaces, tightly controlled shading.
+Text: no words, no lettering beyond the abstract C-shaped emblem, no numbers, no watermark.
+Constraints: deliver only the final icon artwork, no presentation board, no mockups, no surrounding scene, no outer cast shadow, no busy details, no currency signs, no Google or Terraform trademarks, no glossy plastic, no gradients in the tile background. Real alpha transparency around the rounded tile.
