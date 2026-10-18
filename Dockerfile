@@ -9,13 +9,13 @@
 # image layers: rebuilds are incremental and nothing is left in the image
 # (reclaim the cache with `docker builder prune`).
 
-ARG RUST_VERSION=1.98
-ARG DEBIAN_RELEASE=trixie
-# Pinned by digest (multi-arch index); bump with
+# Pinned by digest (multi-arch indexes; Dependabot bumps them); bump by hand with
+#   docker buildx imagetools inspect rust:1.98-slim-trixie
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
+ARG BUILD_IMAGE=rust:1.98-slim-trixie@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7
 ARG RUNTIME_IMAGE=cgr.dev/chainguard/wolfi-base:latest@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
 
-FROM rust:${RUST_VERSION}-slim-${DEBIAN_RELEASE} AS build
+FROM ${BUILD_IMAGE} AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo .cargo

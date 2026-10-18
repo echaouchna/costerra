@@ -74,8 +74,9 @@ Project: live/prod/app (terragrunt)
 * **Release binaries** (Linux x86_64 / aarch64, macOS Intel / Apple silicon):
   download a `costerra-<version>-<target>.tar.gz` from the [releases page](https://github.com/echaouchna/costerra/releases),
   check it against `SHA256SUMS` (and its build provenance with
-  `gh attestation verify <file> --repo echaouchna/costerra`), and put `costerra` on
-  your `PATH`.
+  `gh attestation verify <file> --repo echaouchna/costerra`, or offline with the
+  release's `costerra-<version>.intoto.jsonl`: add `--bundle <that file>`), and put
+  `costerra` on your `PATH`.
 * **From source** (Rust 1.89 or newer), to track the latest `main`:
 
   ```sh
