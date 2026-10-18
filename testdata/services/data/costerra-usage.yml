@@ -1,0 +1,38 @@
+version: 0.1
+
+resource_usage:
+  google_bigquery_dataset.analytics:
+    storage_gb: 2000
+    long_term_storage_gb: 8000
+    compression_ratio: 4
+    monthly_storage_write_api_gb: 500
+  google_bigquery_dataset.raw:
+    physical_storage_gb: 1500
+    long_term_physical_storage_gb: 6000
+    time_travel_storage_gb: 400
+    fail_safe_storage_gb: 150
+  google_bigquery_dataset.sandbox:
+    storage_gb: 300
+    monthly_queries_tib: 20
+  google_bigquery_table.events:
+    storage_gb: 1200
+    long_term_storage_gb: 3000
+    monthly_streaming_inserts_mb: 50000
+  google_bigquery_reservation.prod:
+    average_autoscale_slots: 60
+  google_bigquery_reservation.dev:
+    average_autoscale_slots: 10
+  google_bigquery_data_transfer_config.kpi_refresh:
+    monthly_queries_tib: 3
+  google_dataflow_flex_template_job.orders_cdc:
+    monthly_streaming_engine_compute_units: 900
+  google_dataflow_flex_template_job.nightly_export:
+    monthly_hrs: 60
+    monthly_shuffle_data_gb: 2000
+  google_dataproc_batch.backfill:
+    monthly_hrs: 40
+  google_datastream_stream.orders:
+    monthly_cdc_data_gb: 300
+    monthly_backfill_data_gb: 800
+  google_dataplex_datascan.orders_quality:
+    monthly_dcu_hours: 120

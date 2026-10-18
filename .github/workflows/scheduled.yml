@@ -1,0 +1,82 @@
+name: Scheduled checks
+
+# Weekly: new advisories for the locked dependencies, vulnerabilities of the
+# published image, and catalog drift (SKUs renamed or removed by Google make
+# cost models lose their price) when COSTERRA_API_KEY is configured.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.98"
+
+jobs:
+  advisories:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories
+      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            scan
+            source
+            --recursive
+            ./
+
+  image:
+    name: Published image vulnerabilities
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:latest" >> "$GITHUB_ENV"
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          exit-code: "1"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+  catalog-drift:
+    name: Catalog drift
+    runs-on: ubuntu-latest
+    env:
+      COSTERRA_API_KEY: ${{ secrets.COSTERRA_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.COSTERRA_API_KEY != ''
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        if: env.COSTERRA_API_KEY != ''
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Price the fixtures with a fresh catalog
+        if: env.COSTERRA_API_KEY != ''
+        run: |
+          cargo run --release --locked -- pricing sync
+          cargo test --locked --test fixtures
+      - name: How golden prices moved (informational)
+        if: env.COSTERRA_API_KEY != ''
+        run: |
+          cargo test --locked --test golden regenerate_golden_catalog -- --ignored
+          git diff --stat -- testdata/pricing || true
+      - name: Skipped
+        if: env.COSTERRA_API_KEY == ''
+        run: echo "Set the COSTERRA_API_KEY secret to check the fixtures against the live catalog."

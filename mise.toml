@@ -1,0 +1,16 @@
+[tools]
+rust = { version = "1.98", components = "clippy,rustfmt" }
+just = "latest"
+jq = "latest"
+hyperfine = "latest"
+# Only needed to generate plan JSON fixtures (`just plan-fixture`).
+terraform = "1"
+terragrunt = "latest"
+osv-scanner = "latest"
+trivy = "latest"
+gitleaks = "latest"
+# Licence / advisory policy (deny.toml), prebuilt binary.
+"github:EmbarkStudios/cargo-deny" = "latest"
+
+[env]
+RUST_BACKTRACE = "1"

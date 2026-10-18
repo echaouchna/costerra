@@ -1,0 +1,44 @@
+name: Bug report
+description: costerra crashes, mis-evaluates code, or behaves unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please replace real project ids, billing account ids,
+        bucket names and credentials with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: costerra version
+      description: Output of `costerra --version`
+      placeholder: costerra 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: input
+    attributes:
+      label: Input
+      options: [Terraform directory, Terragrunt repository, Plan JSON, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small Terraform / Terragrunt snippet and the command you ran.
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Relevant output, with `--show-all` (and `-v` for logs).
+      render: text

@@ -1,0 +1,57 @@
+version: 0.1
+
+resource_usage:
+  google_cloud_run_v2_service.api:
+    monthly_requests: 50000000
+    average_request_duration_ms: 120
+    concurrency: 20
+    monthly_egress_data_transfer_gb: 200
+  google_cloud_run_v2_service.backoffice_dev:
+    monthly_requests: 200000
+    average_request_duration_ms: 300
+  google_cloud_run_v2_service.reports:
+    monthly_vcpu_seconds: 900000
+  google_cloud_run_v2_service.inference_dev:
+    monthly_requests: 20000
+    average_request_duration_ms: 4000
+    concurrency: 4
+  google_cloud_run_v2_job.etl:
+    monthly_executions: 30
+    average_task_duration_seconds: 900
+  google_cloudfunctions_function.thumbnails:
+    monthly_function_invocations: 10000000
+    request_duration_ms: 350
+    monthly_outbound_data_gb: 50
+  google_cloudfunctions_function.webhook_dev:
+    monthly_function_invocations: 100000
+    request_duration_ms: 80
+  google_cloudfunctions2_function.ingest:
+    monthly_function_invocations: 30000000
+    request_duration_ms: 250
+    concurrency: 5
+  google_pubsub_topic.events:
+    monthly_message_data_tb: 2
+  google_pubsub_topic.audit_dev:
+    monthly_message_data_gb: 300
+  google_pubsub_topic.kinesis_import:
+    monthly_message_data_gb: 500
+  google_pubsub_subscription.events_worker:
+    monthly_message_data_tb: 2
+    storage_gb: 5
+  google_pubsub_subscription.events_bq:
+    monthly_message_data_tb: 2
+  google_pubsub_subscription.audit_replay_dev:
+    monthly_message_data_gb: 300
+  google_cloud_tasks_queue.emails:
+    monthly_operations: 5000000
+  google_workflows_workflow.orders:
+    monthly_internal_steps: 2000000
+    monthly_external_steps: 500000
+  google_eventarc_message_bus.bus:
+    monthly_events: 10000000
+  google_eventarc_pipeline.pipeline:
+    monthly_events: 10000000
+  google_api_gateway_gateway.public:
+    monthly_calls: 30000000
+  google_app_engine_standard_app_version.frontend_dev:
+    monthly_instance_hours: 100

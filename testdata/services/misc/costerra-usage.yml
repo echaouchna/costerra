@@ -1,0 +1,46 @@
+version: 0.1
+resource_usage:
+  google_kms_crypto_key.cmek:
+    key_versions: 4
+    monthly_key_operations: 20000000
+  google_kms_crypto_key.hsm_payments:
+    monthly_key_operations: 5000000
+  google_kms_crypto_key.dev_signing:
+    monthly_key_operations: 200000
+  google_secret_manager_secret.db_password:
+    monthly_access_operations: 3000000
+  google_secret_manager_secret.api_keys:
+    active_versions: 12
+    monthly_access_operations: 500000
+  google_logging_project_bucket_config.default:
+    monthly_logging_data_gb: 400
+  google_logging_project_bucket_config.audit_archive:
+    monthly_logging_data_gb: 150
+  google_logging_project_bucket_config.dev_app_logs:
+    monthly_logging_data_gb: 250
+  google_monitoring_metric_descriptor.orders:
+    time_series: 2000
+  google_monitoring_metric_descriptor.latency:
+    time_series: 500
+  google_cloudbuild_trigger.app:
+    monthly_build_minutes: 6000
+  google_cloudbuild_trigger.images:
+    monthly_build_minutes: 1500
+  google_cloudbuild_trigger.private:
+    monthly_build_minutes: 2000
+  google_cloudbuild_worker_pool.ci:
+    monthly_build_minutes: 3000
+  google_cloudbuild_worker_pool.dev_heavy:
+    monthly_build_minutes: 1000
+  google_workstations_workstation_config.dev:
+    workstations: 5
+    monthly_hours_per_workstation: 180
+  google_workstations_workstation.alice:
+    monthly_hours_per_workstation: 160
+  google_identity_platform_config.default:
+    monthly_active_users: 120000
+    monthly_sms_mfa_verifications: 8000
+  google_identity_platform_tenant.partners:
+    monthly_saml_oidc_active_users: 300
+  google_certificate_manager_trust_config.partners:
+    monthly_mtls_connections: 50000000

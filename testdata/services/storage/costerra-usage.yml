@@ -1,0 +1,53 @@
+version: 0.1
+resource_usage:
+  google_storage_bucket.prod_assets:
+    storage_gb: 500
+    monthly_class_a_operations: 200000
+    monthly_class_b_operations: 5000000
+    monthly_egress_data_transfer_gb:
+      same_continent: 100
+      worldwide: 250
+      asia: 20
+  google_storage_bucket.prod_datalake:
+    storage_gb: 20000
+    monthly_class_a_operations: 1000000
+    monthly_class_b_operations: 10000000
+    monthly_replicated_data_gb: 1500
+    soft_delete_storage_gb: 1200
+  google_storage_bucket.dev_uploads:
+    storage_gb: 1000
+    monthly_class_a_operations: 100000
+    monthly_replicated_data_gb: 200
+    monthly_egress_data_transfer_gb: 50
+  google_storage_bucket.dev_replicated:
+    storage_gb: 300
+    monthly_replicated_data_gb: 400
+  google_storage_bucket.prod_archive:
+    storage_gb: 50000
+    monthly_data_retrieval_gb: 100
+  google_storage_bucket.prod_ml_datasets:
+    storage_gb: 2000
+    monthly_class_a_operations: 500000
+    monthly_class_b_operations: 20000000
+  google_storage_bucket.dev_scratch:
+    storage_gb: 400
+    soft_delete_storage_gb: 900
+    monthly_data_retrieval_gb: 50
+  google_storage_anywhere_cache.ml:
+    cache_storage_gb: 500
+    monthly_cache_ingest_gb: 1000
+    monthly_cache_data_transfer_out_gb: 20000
+    monthly_cache_operations: 5000000
+  google_filestore_instance.prod_home:
+    used_gb: 2500
+  google_filestore_backup.prod_home:
+    storage_gb: 1800
+  google_artifact_registry_repository.docker:
+    storage_gb: 250
+    monthly_egress_data_transfer_gb:
+      same_continent: 50
+      internet: 30
+  google_artifact_registry_repository.dockerhub_cache:
+    storage_gb: 40
+  google_backup_dr_backup_vault.prod:
+    storage_gb: 400

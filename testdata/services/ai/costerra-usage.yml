@@ -1,0 +1,16 @@
+version: 0.1
+resource_usage:
+  google_vertex_ai_index.products:
+    monthly_index_build_gb: 10
+    monthly_streaming_update_gb: 5
+  google_vertex_ai_featurestore.dev_legacy:
+    online_storage_gb: 50
+    offline_storage_gb: 500
+  google_vertex_ai_feature_online_store.dev_bigtable:
+    bigtable_storage_gb: 100
+  google_vertex_ai_feature_online_store_featureview.prod_users:
+    monthly_data_processing_node_hours: 300
+  google_vertex_ai_tensorboard.experiments:
+    storage_gb: 20
+  google_vertex_ai_metadata_store.default:
+    storage_gb: 2

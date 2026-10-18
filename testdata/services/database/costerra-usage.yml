@@ -1,0 +1,35 @@
+version: 0.1
+resource_type_default_usage:
+  google_sql_database_instance:
+    backup_storage_gb: 50
+    monthly_egress_data_transfer_gb: 20
+resource_usage:
+  google_sql_database_instance.prod_postgres:
+    storage_gb: 350
+    backup_storage_gb: 400
+  google_alloydb_cluster.prod:
+    storage_gb: 500
+    backup_storage_gb: 800
+    continuous_backup_storage_gb: 200
+  google_spanner_instance.prod_global:
+    storage_gb: 2000
+    backup_storage_gb: 1000
+  google_spanner_instance.prod_autoscaled:
+    nodes: 2.5
+    storage_gb: 300
+  google_bigtable_instance.prod:
+    storage_gb: 4000
+    backup_storage_gb: 1000
+  google_bigtable_instance.prod_archive:
+    storage_gb: 20000
+  google_redis_cluster.prod:
+    backup_storage_gb: 40
+  google_firestore_database.default:
+    storage_gb: 120
+    monthly_document_reads: 300000000
+    monthly_document_writes: 60000000
+    monthly_document_deletes: 5000000
+  google_firestore_database.dev:
+    storage_gb: 30
+    monthly_document_reads: 10000000
+    monthly_document_writes: 2000000

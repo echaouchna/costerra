@@ -1,0 +1,28 @@
+# costerra configuration (place as costerra.yml at the repository root)
+default_region: europe-west1
+currency: USD
+# Contract prices (negotiated discounts): the billing account is detected from
+# the projects in your code; set it explicitly, or `none` for list prices only.
+# Requires Billing Account Viewer.
+# billing_account: 012345-6789AB-CDEF01
+# refresh_prices: true   # re-fetch prices of used SKUs on every run (~2-3 s)
+usage_file: costerra-usage.yml
+exclude_paths:
+  - "examples/**"
+
+# Tokens matched against project paths, GCP project ids and `env` labels.
+environments:
+  nonprod: [dev, test, staging, sandbox, qa, uat]
+  prod: [prod, production]
+
+projects:
+  - match: "live/prod/**"
+    env: prod
+
+recommendations:
+  disabled: []          # e.g. [region-cheaper, compute-cud]
+
+policies:
+  max_monthly_cost: 50000
+  max_increase: 1000          # per diff, absolute
+  max_increase_percent: 15    # per diff, relative

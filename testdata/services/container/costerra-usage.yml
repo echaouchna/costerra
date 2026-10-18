@@ -1,0 +1,15 @@
+version: 0.1
+resource_usage:
+  google_container_cluster.autopilot_prod:
+    autopilot_vcpu_count: 20
+    autopilot_memory_gb: 80
+    autopilot_ephemeral_storage_gb: 50
+  google_container_cluster.autopilot_dev:
+    autopilot_compute_class: balanced
+    autopilot_vcpu_count: 4
+    autopilot_memory_gb: 16
+    autopilot_ephemeral_storage_gb: 10
+    autopilot_spot_vcpu_count: 2
+    autopilot_spot_memory_gb: 8
+  google_container_cluster.dev:
+    monthly_extended_support_hrs: 0

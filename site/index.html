@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>costerra — Google Cloud cost estimates for Terraform &amp; Terragrunt</title>
+  <meta name="description" content="Fast cost estimates and optimization insights for Google Cloud Terraform and Terragrunt code. Written in Rust. No terraform init, no credentials, 120+ savings rules, made for CI.">
+  <meta name="theme-color" content="#f2ede3">
+  <meta property="og:title" content="costerra — know what your Google Cloud costs before you apply">
+  <meta property="og:description" content="Static cost estimates for Terraform & Terragrunt on GCP, in milliseconds. 122 priced resource types, 120+ optimization rules, cost diffs in every pull request.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://echaouchna.github.io/costerra/">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ───────────── Top line ───────────── -->
+  <a class="topline" href="https://github.com/echaouchna/costerra/releases" target="_blank" rel="noopener">
+    <span class="tl-tag">NEW</span>
+    <span>costerra 0.1.0, the first public release, is out</span>
+    <span class="tl-sep">/</span>
+    <span class="tl-dim">Apache-2.0 · Rust 1.89+ · Linux &amp; macOS</span>
+    <span class="tl-arrow">Release notes →</span>
+  </a>
+
+  <!-- ───────────── Navigation ───────────── -->
+  <header class="nav" id="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="costerra home">
+        <img src="favicon.svg" alt="" width="30" height="30">
+        <span>costerra</span>
+      </a>
+      <nav class="nav-links" id="nav-links">
+        <a href="#features"><i>01</i>Features</a>
+        <a href="#how"><i>02</i>Method</a>
+        <a href="#savings"><i>03</i>Savings</a>
+        <a href="#ci"><i>04</i>CI</a>
+        <a href="#coverage"><i>05</i>Coverage</a>
+        <a href="#install"><i>06</i>Install</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="nav-gh" href="https://github.com/echaouchna/costerra" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          <span>GitHub</span>
+        </a>
+        <a class="btn btn-ink btn-sm" href="#install">Install</a>
+        <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ───────────── Hero ───────────── -->
+    <section class="hero">
+      <canvas class="contours" data-contours="ink" aria-hidden="true"></canvas>
+      <span class="reg reg-tl" aria-hidden="true"></span>
+      <span class="reg reg-tr" aria-hidden="true"></span>
+      <span class="reg reg-bl" aria-hidden="true"></span>
+      <span class="reg reg-br" aria-hidden="true"></span>
+      <span class="coords coords-l" aria-hidden="true">50.8503° N · 4.3517° E — europe-west1</span>
+      <span class="coords coords-r" aria-hidden="true">SHEET 01 / 06 — COST SURVEY</span>
+
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="kicker reveal"><span class="sec-mark">§ 00</span> Cost estimates for Google Cloud · Terraform &amp; Terragrunt</p>
+          <h1 class="hero-title reveal" style="--d:.06s">
+            Know what your Google&nbsp;Cloud costs before you
+            <span class="rot-wrap"><em class="rot" id="rotator">apply</em><svg class="scribble" viewBox="0 0 220 24" preserveAspectRatio="none" aria-hidden="true"><path d="M3 15c28-7 60-10 96-9 30 1 58 3 82 1 12-1 24-3 36-6"/><path d="M14 20c40-4 82-5 124-3 22 1 44 1 66-2"/></svg></span>.
+          </h1>
+          <p class="lede reveal" style="--d:.14s">
+            costerra reads your Terraform and Terragrunt code, prices every resource against the official Cloud Billing
+            catalog in milliseconds, and marks up the bill with ways to spend less. You don't need
+            <code>terraform&nbsp;init</code> or any credentials.
+          </p>
+          <div class="hero-ctas reveal" style="--d:.22s">
+            <a class="btn btn-ink" href="#install">Install costerra <span class="arr">→</span></a>
+            <a class="btn btn-line" href="https://github.com/echaouchna/costerra" target="_blank" rel="noopener">Read the source ↗</a>
+          </div>
+          <div class="strip reveal" style="--d:.3s">
+            <span class="strip-p">$</span>
+            <code id="hero-install">cargo install --locked --git https://github.com/echaouchna/costerra</code>
+            <button class="copy" data-copy-target="hero-install" aria-label="Copy install command">copy</button>
+          </div>
+          <ul class="hero-meta reveal" style="--d:.38s">
+            <li><b>61 ms</b> for 350 resources</li>
+            <li><b>0</b> credentials needed</li>
+            <li><b>120+</b> savings rules</li>
+          </ul>
+        </div>
+
+        <figure class="hero-visual reveal" style="--d:.15s">
+          <div class="printer" aria-hidden="true"><span class="printer-led"></span><span class="printer-slot"></span></div>
+          <div class="receipt-wrap">
+            <div class="receipt" id="receipt" aria-label="Example costerra estimate printed as a receipt"></div>
+            <div class="stamp" id="stamp" aria-hidden="true">
+              <span class="stamp-top">AUDITED</span>
+              <span class="stamp-mid">−$336.06</span>
+              <span class="stamp-bot">PER MONTH · 6 FINDINGS</span>
+            </div>
+          </div>
+          <figcaption>
+            <span>Fig. 1 — <code>costerra breakdown live/</code>, condensed</span>
+            <button class="link-btn" id="reprint" type="button">↻ reprint</button>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ───────────── Readings ───────────── -->
+    <section class="readings" aria-label="Key figures">
+      <div class="container readings-grid">
+        <div class="reading reveal">
+          <span class="r-label">Analysis time</span>
+          <span class="r-num"><span class="odo" data-odo="60"></span><small>ms</small></span>
+          <span class="r-note">15 projects · 350 resources</span>
+        </div>
+        <div class="reading reveal" style="--d:.06s">
+          <span class="r-label">Price catalog</span>
+          <span class="r-num"><span class="odo" data-odo="85"></span><small>k SKUs</small></span>
+          <span class="r-note">cached locally in 2 MiB</span>
+        </div>
+        <div class="reading reveal" style="--d:.12s">
+          <span class="r-label">Savings rules</span>
+          <span class="r-num"><span class="odo" data-odo="120"></span><small>+</small></span>
+          <span class="r-note">each with a monthly estimate</span>
+        </div>
+        <div class="reading reveal" style="--d:.18s">
+          <span class="r-label">Resource types</span>
+          <span class="r-num"><span class="odo" data-odo="122"></span><small>priced</small></span>
+          <span class="r-note">about 300 more known to be free</span>
+        </div>
+        <div class="reading reveal" style="--d:.24s">
+          <span class="r-label">Credentials</span>
+          <span class="r-num"><span class="odo" data-odo="0"></span><small>needed</small></span>
+          <span class="r-note">static HCL evaluation</span>
+        </div>
+      </div>
+      <div class="container works-with reveal">
+        <span class="ww-label">Reads</span>
+        <span>Terraform</span><i>/</i><span>Terragrunt</span><i>/</i><span>plan JSON</span><i>/</i><span>Infracost usage files</span>
+        <span class="ww-label ww-gap">Ships to</span>
+        <span>GitHub Actions</span><i>/</i><span>GitLab CI</span><i>/</i><span>Docker</span>
+      </div>
+    </section>
+
+    <!-- ───────────── §01 Features ───────────── -->
+    <section class="sec" id="features">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 01 — Features</span>
+            <h2>A cost survey of your infrastructure, <em>done before your coffee cools.</em></h2>
+          </div>
+          <p>Fast, accurate and built for CI. costerra fits into the workflow you already have, from your laptop to the merge request.</p>
+        </header>
+
+        <div class="spec">
+          <article class="spec-cell span-3 reveal">
+            <span class="spec-n">01</span>
+            <h3>Fast</h3>
+            <p>HCL is evaluated statically and in parallel. There are no providers to download and no plans to wait for.</p>
+            <div class="fig speed">
+              <div class="speed-row"><span>350 resources</span><div class="speed-track"><div class="speed-bar" style="--w:60%"></div></div><b>~60 ms</b></div>
+              <div class="speed-row"><span>5,000 resources</span><div class="speed-track"><div class="speed-bar" style="--w:100%"></div></div><b>~100 ms</b></div>
+              <div class="speed-row skip"><span>terraform init</span><div class="speed-track"><div class="speed-bar" style="--w:100%"></div></div><b>skipped</b></div>
+            </div>
+          </article>
+
+          <article class="spec-cell span-3 reveal" style="--d:.06s">
+            <span class="spec-n">02</span>
+            <h3>Accurate to the SKU</h3>
+            <p>Prices come from the Cloud Billing Catalog API. costerra applies sustained use discounts, licenses, GPUs, tiered rates, Spot pricing and regional differences.</p>
+            <div class="fig ledger-tick" aria-hidden="true">
+              <div class="lt-track">
+                <div><span>N2 Instance Core · europe-west1</span><b>$0.034982/h</b></div>
+                <div><span>E2 Instance Ram · us-central1</span><b>$0.002934/h</b></div>
+                <div><span>Cloud SQL PG HA vCPU · europe-west4</span><b>$0.0909/h</b></div>
+                <div><span>Balanced PD Capacity · europe-west1</span><b>$0.11/GiB·mo</b></div>
+                <div><span>Standard Storage EU Multi-region</span><b>$0.026/GiB·mo</b></div>
+                <div><span>Cloud Run CPU · Tier 1</span><b>$0.000024/vCPU·s</b></div>
+                <div><span>Nvidia L4 GPU · Spot · us-east4</span><b>$0.2240/h</b></div>
+                <div><span>BigQuery Analysis · on-demand</span><b>$6.25/TiB</b></div>
+                <div><span>N2 Instance Core · europe-west1</span><b>$0.034982/h</b></div>
+                <div><span>E2 Instance Ram · us-central1</span><b>$0.002934/h</b></div>
+                <div><span>Cloud SQL PG HA vCPU · europe-west4</span><b>$0.0909/h</b></div>
+                <div><span>Balanced PD Capacity · europe-west1</span><b>$0.11/GiB·mo</b></div>
+                <div><span>Standard Storage EU Multi-region</span><b>$0.026/GiB·mo</b></div>
+                <div><span>Cloud Run CPU · Tier 1</span><b>$0.000024/vCPU·s</b></div>
+                <div><span>Nvidia L4 GPU · Spot · us-east4</span><b>$0.2240/h</b></div>
+                <div><span>BigQuery Analysis · on-demand</span><b>$6.25/TiB</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="spec-cell span-2 reveal">
+            <span class="spec-n">03</span>
+            <h3>Your contract prices</h3>
+            <p>costerra detects your billing account and prices with your negotiated discounts. Public list prices stay visible next to them.</p>
+            <div class="fig compare">
+              <div class="cmp"><span>list</span><div class="cmp-bar pub"></div><b>$129.81</b></div>
+              <div class="cmp"><span>yours</span><div class="cmp-bar you"></div><b>$104.20</b></div>
+              <p class="cmp-note">saves <b>19.7%</b> against the list price</p>
+            </div>
+          </article>
+
+          <article class="spec-cell span-2 reveal" style="--d:.06s">
+            <span class="spec-n">04</span>
+            <h3>Made for CI</h3>
+            <p>Diff costs against any git ref, post Markdown comments on merge requests, and fail the pipeline when a budget policy is broken.</p>
+            <ol class="fig pipeline">
+              <li><span class="pl ok">✓</span>costerra diff --base origin/main</li>
+              <li><span class="pl ok">✓</span>comment posted on !42</li>
+              <li><span class="pl fail">✗</span>+19% &gt; 15% → <b>exit 2</b></li>
+            </ol>
+          </article>
+
+          <article class="spec-cell span-2 reveal" style="--d:.12s">
+            <span class="spec-n">05</span>
+            <h3>Usage, estimated</h3>
+            <p>Storage, requests and egress get <i>small</i>, <i>medium</i> and <i>large</i> example estimates when you have no usage data yet.</p>
+            <div class="fig profile" data-profile>
+              <div class="seg" role="tablist" aria-label="Usage profile">
+                <button role="tab" data-p="small">small</button>
+                <button role="tab" data-p="medium" class="on">medium</button>
+                <button role="tab" data-p="large">large</button>
+                <span class="seg-glider"></span>
+              </div>
+              <div class="profile-out">
+                <div><small>google_storage_bucket.assets</small><b data-val="bucket">$9.00</b></div>
+                <div><small>total with usage</small><b data-val="total">$15.21</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="spec-cell span-3 reveal">
+            <span class="spec-n">06</span>
+            <h3>Understands Terragrunt</h3>
+            <p>costerra handles <code>include</code>, <code>dependency</code> outputs, <code>read_terragrunt_config</code> and <code>generate</code> blocks, along with modules, <code>for_each</code> and about 90 built-in functions. If a root module keeps one tfvars file per environment, you get one project per environment.</p>
+            <div class="fig tree" aria-hidden="true">
+              <div><span class="t-dir">live/</span></div>
+              <div><span class="t-br">├─</span> terragrunt.hcl <span class="t-tag">root include</span></div>
+              <div><span class="t-br">├─</span> <span class="t-dir">prod/app</span><span class="t-dots"></span><span class="t-cost">$1,012.47</span></div>
+              <div><span class="t-br">├─</span> <span class="t-dir">prod/db</span> <span class="t-tag red">dependency → network</span><span class="t-dots"></span><span class="t-cost">$642.18</span></div>
+              <div><span class="t-br">└─</span> <span class="t-dir">30-network</span> <span class="t-tag">dev · prod</span><span class="t-dots"></span><span class="t-cost">$87.60</span></div>
+            </div>
+          </article>
+
+          <article class="spec-cell span-3 reveal" style="--d:.06s">
+            <span class="spec-n">07</span>
+            <h3>Private by default</h3>
+            <p>Your code is evaluated on your machine and nothing is uploaded. The AI review is opt-in. Before it uploads anything, it redacts secrets, skips git-ignored files and honours <code>.costerraignore</code>. A dry run shows exactly what would be sent.</p>
+<pre class="fig code-mini" aria-hidden="true"><span class="k">resource</span> <span class="s">"google_sql_user"</span> <span class="s">"app"</span> {
+  name     = <span class="s">"app"</span>
+  password = <span class="redact"><span class="s">"s3cr3t-pa55w0rd"</span></span>
+  instance = google_sql_database_instance.main.name
+}</pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §02 Method ───────────── -->
+    <section class="sec" id="how">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 02 — Method</span>
+            <h2>From <code class="h-code">.tf</code> to a priced, annotated report, <em>in one command.</em></h2>
+          </div>
+          <p>Four stations, no network round trips on the critical path. Prices that need refreshing are fetched in parallel while the code is evaluated.</p>
+        </header>
+
+        <div class="survey" id="survey">
+          <div class="chain" aria-hidden="true"><div class="chain-fill" id="chain-fill"></div></div>
+          <div class="station" data-at="0.125">
+            <span class="bench" aria-hidden="true"></span>
+            <span class="st-n">STATION 01</span>
+            <h3>Read</h3>
+            <p>Terraform root modules, Terragrunt units, mixed repositories or a <code>plan.json</code>. costerra discovers the projects for you.</p>
+            <div class="tags"><span>.tf</span><span>.hcl</span><span>.tfvars</span><span>plan.json</span></div>
+          </div>
+          <div class="station" data-at="0.375">
+            <span class="bench" aria-hidden="true"></span>
+            <span class="st-n">STATION 02</span>
+            <h3>Evaluate</h3>
+            <p>Variables, locals, <code>count</code> and <code>for_each</code>, local and remote modules, and dependency outputs are all evaluated statically and in parallel.</p>
+            <div class="tags"><span>~90 functions</span><span>modules</span><span>mock_outputs</span></div>
+          </div>
+          <div class="station" data-at="0.625">
+            <span class="bench" aria-hidden="true"></span>
+            <span class="st-n">STATION 03</span>
+            <h3>Price</h3>
+            <p>Each resource is matched to its SKUs, with your contract prices when they are available. The catalog is split per service and decoded lazily.</p>
+            <div class="tags"><span>85k SKUs</span><span>SUD</span><span>Spot</span><span>free tiers</span></div>
+          </div>
+          <div class="station" data-at="0.875">
+            <span class="bench" aria-hidden="true"></span>
+            <span class="st-n">STATION 04</span>
+            <h3>Advise</h3>
+            <p>More than 120 rules plus Google Cloud Recommender and Rabbit insights, each with an estimated monthly saving and its source.</p>
+            <div class="tags"><span>table</span><span>JSON</span><span>Markdown</span><span>exit codes</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §03 Savings ───────────── -->
+    <section class="sec" id="savings">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 03 — Recommendations</span>
+            <h2>Every bill comes back <em>marked up in red ink.</em></h2>
+          </div>
+          <p>Each finding is matched to the Terraform resource it concerns and comes with an estimated monthly saving. Rules that only make sense outside production, such as Spot, single-zone or no HA, are applied only there.</p>
+        </header>
+
+        <div class="audit reveal" id="audit">
+          <div class="audit-head">
+            <span>Finding</span><span>Resource</span><span class="num">Before</span><span class="num">After</span><span class="num">Saves / mo</span>
+          </div>
+
+          <div class="audit-row">
+            <div class="a-find"><span class="sev med">MED</span>Use Spot VMs for this non-production instance <span class="src">costerra</span></div>
+            <div class="a-res">live/dev/app<br><code>google_compute_instance.app[*] ×2</code></div>
+            <div class="num"><s>$350.20</s></div>
+            <div class="num">$175.10</div>
+            <div class="num a-save">−$175.10</div>
+          </div>
+          <div class="audit-row">
+            <div class="a-find"><span class="sev low">LOW</span>Switch n2-standard-8 to e2-standard-8 <span class="src">costerra</span></div>
+            <div class="a-res">live/prod/app<br><code>google_compute_instance.app[*] ×4</code></div>
+            <div class="num"><s>$999.27</s></div>
+            <div class="num">$861.67</div>
+            <div class="num a-save">−$137.60</div>
+          </div>
+          <div class="audit-row alt">
+            <div class="a-find"><span class="sev alt">ALT</span>Cover this always-on VM with a committed use discount <span class="src">costerra</span></div>
+            <div class="a-res">same VMs as above<br><code>1-year or 3-year commitment</code></div>
+            <div class="num">$999.27</div>
+            <div class="num">$927.87</div>
+            <div class="num a-note">alternative<br>not counted</div>
+          </div>
+          <div class="audit-row">
+            <div class="a-find"><span class="sev low">LOW</span>Lifecycle rules to move or delete cold data <span class="src g">Google</span></div>
+            <div class="a-res">live/prod/data<br><code>google_storage_bucket.datalake</code></div>
+            <div class="num"><s>$64.22</s></div>
+            <div class="num">$48.16</div>
+            <div class="num a-save">−$16.06</div>
+          </div>
+          <div class="audit-row">
+            <div class="a-find"><span class="sev low">LOW</span>Static IP address is not attached to anything <span class="src r">Rabbit</span></div>
+            <div class="a-res">live/dev/network<br><code>google_compute_address.legacy</code></div>
+            <div class="num"><s>$7.30</s></div>
+            <div class="num">$0.00</div>
+            <div class="num a-save">−$7.30</div>
+          </div>
+
+          <div class="audit-total">
+            <p class="a-foot">The total counts the best option per resource, so alternatives for the same VM are never added together. Each line names its source: a costerra rule ID, a ready-to-run <code>gcloud recommender</code> command, or a Rabbit link.</p>
+            <div class="a-sum">
+              <span>Potential savings</span>
+              <b><span class="circled">$<span data-count="336.06" data-decimals="2">0</span><svg viewBox="0 0 300 110" preserveAspectRatio="none" aria-hidden="true"><path d="M168 8C96 2 18 18 8 52c-9 32 58 52 146 50 84-2 138-22 136-52C288 20 220 4 140 10"/></svg></span><small>/month</small></b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §04 CI ───────────── -->
+    <section class="sec sec-dark" id="ci">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 04 — Continuous integration</span>
+            <h2>A cost review on every pull request, <em>with a budget that can say no.</em></h2>
+          </div>
+          <p>costerra comments on each pull request with the cost diff, then updates that same comment on every push. Policies set the exit code, so a budget can block a merge. <code>diff --base</code> reads the base ref with <code>git archive</code> and never writes to the repository.</p>
+        </header>
+
+        <div class="tabs reveal" data-tabs>
+          <div class="tab-list" role="tablist">
+            <button role="tab" class="on" data-tab="pr">Pull request comment</button>
+            <button role="tab" data-tab="gh">GitHub Actions</button>
+            <button role="tab" data-tab="gl">GitLab CI</button>
+            <button role="tab" data-tab="policy">Policies</button>
+          </div>
+
+          <div class="tab-panel on" data-panel="pr">
+            <div class="pr">
+              <div class="pr-head">
+                <img src="favicon.svg" alt="" width="28" height="28">
+                <b>costerra</b><span class="pr-bot">bot</span><span class="pr-time">commented just now</span>
+              </div>
+              <div class="pr-body">
+                <h4>costerra cost estimate</h4>
+                <p>Monthly cost will <b class="up">increase by $428.10 (+19.0%)</b>, from $2,248.49 to $2,676.59.</p>
+                <div class="pr-table">
+                  <div class="pr-row pr-th"><span>Project</span><span>Before</span><span>After</span><span>Diff</span></div>
+                  <div class="pr-row"><span>live/prod/app</span><span>$1,012.47</span><span>$1,265.59</span><span class="up">+$253.12</span></div>
+                  <div class="pr-row"><span>live/prod/db</span><span>$642.18</span><span>$817.16</span><span class="up">+$174.98</span></div>
+                  <div class="pr-row"><span>live/dev/app</span><span>$506.24</span><span>$506.24</span><span class="dim">$0.00</span></div>
+                  <div class="pr-row"><span>30-network (prod)</span><span>$87.60</span><span>$87.60</span><span class="dim">$0.00</span></div>
+                </div>
+                <div class="pr-policy">
+                  <span class="pp ok">✓ total below $50,000</span>
+                  <span class="pp ok">✓ increase below $500</span>
+                  <span class="pp fail">✗ increase above 15% (exit 2)</span>
+                </div>
+                <details class="pr-details" open>
+                  <summary>3 recommendations, potential savings $320.00/month</summary>
+                  <ul>
+                    <li><span class="src">costerra</span> Use Spot VMs for this non-production instance <b>−$175.10</b></li>
+                    <li><span class="src">costerra</span> Switch n2-standard-8 to e2-standard-8 <b>−$137.60</b></li>
+                    <li><span class="src g">Google</span> Idle IP address <code>legacy-nat</code> <b>−$7.30</b></li>
+                  </ul>
+                </details>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-panel" data-panel="gh">
+            <div class="code-card">
+              <div class="code-head"><span>.github/workflows/costerra.yml</span><button class="copy" data-copy-target="code-gh">copy</button></div>
+<pre id="code-gh"><span class="c"># abridged: copy the full file from ci/github-actions.yml</span>
+<span class="k">name</span>: costerra
+<span class="k">on</span>:
+  <span class="k">pull_request</span>:
+    <span class="k">paths</span>: [<span class="s">"**/*.tf"</span>, <span class="s">"**/*.tfvars"</span>, <span class="s">"**/*.hcl"</span>, <span class="s">"**/costerra*.yml"</span>]
+<span class="k">permissions</span>:
+  <span class="k">contents</span>: read
+  <span class="k">pull-requests</span>: write
+<span class="k">jobs</span>:
+  <span class="k">cost</span>:
+    <span class="k">runs-on</span>: ubuntu-latest
+    <span class="k">steps</span>:
+      - <span class="k">uses</span>: actions/checkout@v7
+        <span class="k">with</span>: { <span class="k">fetch-depth</span>: 0 }
+      - <span class="k">name</span>: Estimate
+        <span class="k">run</span>: |
+          costerra pricing sync --if-older-than 7d
+          costerra diff . --base "origin/${BASE_REF}" --format markdown --out costerra.md
+      - <span class="k">name</span>: Comment   <span class="c"># creates or updates one PR comment</span>
+        <span class="k">run</span>: gh api … -F body=@costerra.md</pre>
+            </div>
+          </div>
+
+          <div class="tab-panel" data-panel="gl">
+            <div class="code-card">
+              <div class="code-head"><span>.gitlab-ci.yml</span><button class="copy" data-copy-target="code-gl">copy</button></div>
+<pre id="code-gl"><span class="k">include</span>:
+  - <span class="k">remote</span>: https://raw.githubusercontent.com/echaouchna/costerra/main/ci/gitlab-ci.yml
+
+<span class="c"># ✓ runs the published container image (pin it with COSTERRA_IMAGE)</span>
+<span class="c"># ✓ re-downloads prices only when the cache is older than 7 days</span>
+<span class="c"># ✓ posts, then updates, a single cost comment on the merge request</span></pre>
+            </div>
+          </div>
+
+          <div class="tab-panel" data-panel="policy">
+            <div class="code-card">
+              <div class="code-head"><span>terminal</span><button class="copy" data-copy-target="code-policy">copy</button></div>
+<pre id="code-policy"><span class="p">$</span> costerra breakdown . --fail-above 10000
+<span class="p">$</span> costerra diff . --base origin/main \
+    --fail-increase-above 500 --fail-increase-percent 10
+<span class="r">✗ policy violated: monthly cost increase +19.0% exceeds 10%</span>
+<span class="p">$</span> echo $?
+<span class="a">2</span>
+
+<span class="c"># or in costerra.yml (strict: a typo is an error, never a silent no-op)</span>
+<span class="k">policies</span>:
+  <span class="k">max_monthly_cost</span>: 50000
+  <span class="k">max_increase_percent</span>: 15</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §05 Coverage ───────────── -->
+    <section class="sec" id="coverage">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 05 — Coverage</span>
+            <h2><span data-count="122">0</span> priced resource types, <em>and about 300 more known to be free.</em></h2>
+          </div>
+          <p>From Compute Engine to Vertex AI. Run <code>costerra resources</code> to list every supported type and its usage keys.</p>
+        </header>
+      </div>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>COMPUTE ENGINE <b>▲</b></span><span>GKE AUTOPILOT <b>▲</b></span><span>CLOUD SQL <b>▲</b></span><span>ALLOYDB <b>▲</b></span><span>SPANNER <b>▲</b></span><span>BIGTABLE <b>▲</b></span><span>MEMORYSTORE <b>▲</b></span><span>CLOUD STORAGE <b>▲</b></span><span>CLOUD RUN <b>▲</b></span><span>CLOUD FUNCTIONS <b>▲</b></span><span>BIGQUERY <b>▲</b></span><span>DATAFLOW <b>▲</b></span><span>DATAPROC <b>▲</b></span><span>COMPOSER <b>▲</b></span><span>VERTEX AI <b>▲</b></span><span>CLOUD TPU <b>▲</b></span><span>CLOUD NAT <b>▲</b></span><span>CLOUD ARMOR <b>▲</b></span><span>PUB/SUB <b>▲</b></span><span>CLOUD KMS <b>▲</b></span>
+          <span>COMPUTE ENGINE <b>▲</b></span><span>GKE AUTOPILOT <b>▲</b></span><span>CLOUD SQL <b>▲</b></span><span>ALLOYDB <b>▲</b></span><span>SPANNER <b>▲</b></span><span>BIGTABLE <b>▲</b></span><span>MEMORYSTORE <b>▲</b></span><span>CLOUD STORAGE <b>▲</b></span><span>CLOUD RUN <b>▲</b></span><span>CLOUD FUNCTIONS <b>▲</b></span><span>BIGQUERY <b>▲</b></span><span>DATAFLOW <b>▲</b></span><span>DATAPROC <b>▲</b></span><span>COMPOSER <b>▲</b></span><span>VERTEX AI <b>▲</b></span><span>CLOUD TPU <b>▲</b></span><span>CLOUD NAT <b>▲</b></span><span>CLOUD ARMOR <b>▲</b></span><span>PUB/SUB <b>▲</b></span><span>CLOUD KMS <b>▲</b></span>
+        </div>
+      </div>
+
+      <div class="container">
+        <ol class="index">
+          <li class="reveal"><span class="ix-t">Compute Engine</span><span class="ix-d"></span><span class="ix-p">instances, MIGs, autoscalers, disks, Hyperdisk, GPUs, local SSD, reservations, commitments, licenses</span></li>
+          <li class="reveal"><span class="ix-t">GKE</span><span class="ix-d"></span><span class="ix-p">Standard &amp; Autopilot clusters, node pools (zones × nodes, Spot, GPUs), Extended channel</span></li>
+          <li class="reveal"><span class="ix-t">Databases</span><span class="ix-d"></span><span class="ix-p">Cloud SQL (HA, replicas, editions), AlloyDB, Spanner, Bigtable, Memorystore, Firestore</span></li>
+          <li class="reveal"><span class="ix-t">Storage</span><span class="ix-d"></span><span class="ix-p">Cloud Storage (all classes, Autoclass, soft delete), Anywhere Cache, Filestore, Artifact Registry, Backup and DR</span></li>
+          <li class="reveal"><span class="ix-t">Networking</span><span class="ix-d"></span><span class="ix-p">Cloud NAT, load balancers, Cloud Armor, CDN, VPN, Interconnect, egress, NCC, Secure Web Proxy, DNS</span></li>
+          <li class="reveal"><span class="ix-t">Serverless</span><span class="ix-d"></span><span class="ix-p">Cloud Run (services, jobs, worker pools, GPUs), Functions gen1/gen2, App Engine, Pub/Sub, Workflows</span></li>
+          <li class="reveal"><span class="ix-t">Data</span><span class="ix-d"></span><span class="ix-p">BigQuery (editions, reservations, BI Engine), Dataflow, Dataproc, Composer 1/2/3, Datastream, Dataplex</span></li>
+          <li class="reveal"><span class="ix-t">AI / ML</span><span class="ix-d"></span><span class="ix-p">Vertex AI Workbench, Colab Enterprise, Vector Search, Feature Store, prediction pools, Cloud TPU</span></li>
+          <li class="reveal"><span class="ix-t">Ops &amp; security</span><span class="ix-d"></span><span class="ix-p">KMS (software, HSM, external), Secret Manager, Logging, Monitoring, Cloud Build, Workstations, IDS</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ───────────── §06 Install ───────────── -->
+    <section class="sec" id="install">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 06 — Install</span>
+            <h2>Up and running <em>in under a minute.</em></h2>
+          </div>
+          <p>Prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>
+        </header>
+
+        <div class="install-grid">
+          <div class="tabs folder reveal" data-tabs>
+            <div class="tab-list" role="tablist">
+              <button role="tab" class="on" data-tab="cargo">Cargo</button>
+              <button role="tab" data-tab="docker">Docker</button>
+              <button role="tab" data-tab="bin">Binary</button>
+            </div>
+            <div class="tab-panel on" data-panel="cargo">
+              <div class="code-card">
+                <div class="code-head"><span>Rust 1.89 or newer</span><button class="copy" data-copy-target="code-cargo">copy</button></div>
+<pre id="code-cargo"><span class="p">$</span> cargo install --locked --git https://github.com/echaouchna/costerra</pre>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="docker">
+              <div class="code-card">
+                <div class="code-head"><span>linux/amd64 · linux/arm64 · non-root</span><button class="copy" data-copy-target="code-docker">copy</button></div>
+<pre id="code-docker"><span class="p">$</span> docker run --rm -v "$PWD:/work" \
+    -v "$HOME/.cache/costerra:/home/nonroot/.cache/costerra" \
+    ghcr.io/echaouchna/costerra breakdown .</pre>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="bin">
+              <div class="code-card">
+                <div class="code-head"><span>Linux x86_64/aarch64 · macOS Intel/Apple silicon</span><button class="copy" data-copy-target="code-bin">copy</button></div>
+<pre id="code-bin"><span class="c"># download costerra-&lt;version&gt;-&lt;target&gt;.tar.gz from the releases page, then:</span>
+<span class="p">$</span> sha256sum -c SHA256SUMS --ignore-missing
+<span class="p">$</span> gh attestation verify costerra-*.tar.gz --repo echaouchna/costerra
+<span class="p">$</span> tar xzf costerra-*.tar.gz &amp;&amp; mv costerra /usr/local/bin/</pre>
+              </div>
+              <a class="link-u" href="https://github.com/echaouchna/costerra/releases" target="_blank" rel="noopener">Browse releases →</a>
+            </div>
+          </div>
+
+          <ol class="steps reveal" style="--d:.1s">
+            <li>
+              <span class="step-n">i.</span>
+              <div><b>Sync prices</b><code>costerra pricing sync</code><small>Uses gcloud ADC or <code>COSTERRA_API_KEY</code>. This happens automatically on first run.</small></div>
+            </li>
+            <li>
+              <span class="step-n">ii.</span>
+              <div><b>Estimate</b><code>costerra breakdown path/to/infra</code><small>Works on Terraform, Terragrunt or a plan JSON.</small></div>
+            </li>
+            <li>
+              <span class="step-n">iii.</span>
+              <div><b>Compare</b><code>costerra diff path/to/infra --base origin/main</code><small>Run it in CI to get a cost comment on every merge request.</small></div>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── CTA ───────────── -->
+    <section class="cta">
+      <canvas class="contours" data-contours="paper" aria-hidden="true"></canvas>
+      <div class="container cta-inner reveal">
+        <span class="sec-mark light">§ 07 — Conclusion</span>
+        <h2>Stop guessing your <em>Google Cloud bill.</em></h2>
+        <p>costerra is free and open source under Apache-2.0. Run it once on your infrastructure repository and see what you could save.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-paper" href="#install">Install costerra <span class="arr">→</span></a>
+          <a class="btn btn-line light" href="https://github.com/echaouchna/costerra" target="_blank" rel="noopener">★ Star on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="brand" href="#top"><img src="favicon.svg" alt="" width="26" height="26"><span>costerra</span></a>
+        <p>Fast cost estimates and optimization insights for Google Cloud Terraform &amp; Terragrunt.</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/echaouchna/costerra#readme" target="_blank" rel="noopener">Documentation</a>
+        <a href="https://github.com/echaouchna/costerra/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/echaouchna/costerra/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+        <a href="https://github.com/echaouchna/costerra/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+        <a href="https://github.com/echaouchna/costerra/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      </nav>
+      <div class="colophon">
+        <span class="sec-mark">Colophon</span>
+        <p>Set in Fraunces and IBM Plex. Contour lines are drawn live from noise. Hosted on GitHub Pages without trackers or cookies.</p>
+      </div>
+    </div>
+    <div class="container footer-legal">
+      <p>© 2026 Nabil Echaouch · Apache License 2.0</p>
+      <p>Google Cloud is a trademark of Google LLC. costerra is an independent project, not affiliated with or endorsed by Google, Rabbit or Infracost.</p>
+    </div>
+  </footer>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

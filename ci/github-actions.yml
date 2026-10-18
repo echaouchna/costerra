@@ -1,0 +1,83 @@
+# Cost estimate comment on GitHub pull requests.
+#
+# Copy to .github/workflows/costerra.yml in your infrastructure repository.
+#
+# Secrets / variables:
+#   COSTERRA_API_KEY  (secret, optional) Google API key with the Cloud Billing
+#                     API enabled; or authenticate with google-github-actions/auth
+#                     (Workload Identity Federation) before the estimate step.
+#   COSTERRA_IMAGE    (variable, optional) image to run; pin a version tag or
+#                     digest for reproducible results.
+#
+# Pull requests from forks get a read-only token: the estimate runs, but the
+# comment cannot be posted. Do not switch to `pull_request_target` to work
+# around it: it would run untrusted code with write permissions.
+
+name: costerra
+
+on:
+  pull_request:
+    paths:
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.hcl"
+      - "**/costerra*.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    env:
+      COSTERRA_IMAGE: ${{ vars.COSTERRA_IMAGE || 'ghcr.io/echaouchna/costerra:latest' }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .costerra-cache
+          key: costerra-prices-${{ github.run_id }}
+          restore-keys: costerra-prices-
+
+      - name: Estimate
+        id: estimate
+        env:
+          COSTERRA_API_KEY: ${{ secrets.COSTERRA_API_KEY }}
+        run: |
+          costerra() {
+            docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" \
+              -e HOME=/tmp -e COSTERRA_CACHE_DIR=/work/.costerra-cache -e COSTERRA_API_KEY \
+              "$COSTERRA_IMAGE" "$@"
+          }
+          costerra pricing sync --if-older-than 7d
+          set +e
+          costerra diff . --base "origin/${BASE_REF}" --format markdown --out costerra.md
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Comment
+        if: always() && hashFiles('costerra.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- costerra-cost-comment -->'
+          id=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F body=@costerra.md >/dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -F body=@costerra.md >/dev/null
+          fi
+
+      # Exit code 2: a policy (--fail-above, --fail-increase-*) was violated.
+      - name: Policy
+        if: steps.estimate.outputs.status != '0'
+        env:
+          STATUS: ${{ steps.estimate.outputs.status }}
+        run: exit "$STATUS"

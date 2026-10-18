@@ -1,0 +1,7 @@
+# Only what the build needs is sent to Docker (target/ alone is gigabytes).
+*
+!Cargo.toml
+!Cargo.lock
+!.cargo/config.toml
+!data/
+!src/

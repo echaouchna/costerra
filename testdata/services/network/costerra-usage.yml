@@ -1,0 +1,31 @@
+version: 0.1
+resource_usage:
+  google_compute_global_forwarding_rule.web_https:
+    monthly_data_processed_gb: 200
+    monthly_outbound_data_processed_gb: 2000
+    monthly_internet_egress_gb: 2000
+  google_compute_forwarding_rule.partner_api:
+    monthly_data_processed_gb: 50
+    monthly_outbound_data_processed_gb: 300
+    monthly_internet_egress_gb: 300
+  google_compute_forwarding_rule.psc_partner:
+    monthly_data_processed_gb: 500
+  google_compute_backend_service.web:
+    monthly_cache_egress_gb: 5000
+    monthly_cache_fill_gb: 1500
+    monthly_cache_lookup_requests: 50000000
+  google_compute_security_policy.edge:
+    monthly_requests: 100000000
+  google_compute_router_nat.prod:
+    monthly_data_processed_gb: 1000
+  google_compute_vpn_tunnel.onprem[*]:
+    monthly_egress_gb: 500
+  google_compute_vpn_tunnel.to_analytics:
+    monthly_egress_gb: 1000
+  google_compute_interconnect_attachment.colo:
+    bandwidth: BPS_2G
+    monthly_egress_gb: 10000
+  google_dns_managed_zone.public:
+    monthly_queries: 20000000
+  google_compute_packet_mirroring.app:
+    monthly_data_processed_gb: 800

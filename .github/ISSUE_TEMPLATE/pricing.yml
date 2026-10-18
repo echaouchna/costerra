@@ -1,0 +1,32 @@
+name: Wrong or missing price
+description: A resource is priced incorrectly, or not priced at all
+labels: [pricing]
+body:
+  - type: input
+    id: resource
+    attributes:
+      label: Resource type
+      placeholder: google_sql_database_instance
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Region / location
+      placeholder: europe-west1
+  - type: textarea
+    id: config
+    attributes:
+      label: Resource configuration (anonymized)
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: prices
+    attributes:
+      label: Price shown by costerra, and expected price
+      description: |
+        Link the Google Cloud pricing page or calculator estimate. The SKU used for each
+        component is in `costerra breakdown <path> --show-all -f json`.
+    validations:
+      required: true

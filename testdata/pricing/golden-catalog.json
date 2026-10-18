@@ -1,0 +1,3253 @@
+{
+  "version": 3,
+  "currency": "USD",
+  "fetched_at": 1790717132,
+  "billing_account": null,
+  "services": [
+    {
+      "id": "6F81-5844-456A",
+      "name": "Compute Engine",
+      "skus": [
+        {
+          "id": "000F-E31B-1D6F",
+          "description": "N1 Predefined Instance Ram running in Zurich",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00555
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0034-652F-8BC9",
+          "description": "E2 Instance Core running in Paris",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.025302
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "012A-5DBB-1352",
+          "description": "E2 Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02401338
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0214-F180-B535",
+          "description": "N4 Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0327495
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0244-44E9-C1CE",
+          "description": "SSD backed Local Storage in Milan",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0928
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0450-45CE-C078",
+          "description": "N2D AMD Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.030278
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "04D9-CEFB-F0AA",
+          "description": "Spot Preemptible N1 Predefined Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02086
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0725-6796-2C8D",
+          "description": "C3D Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03104115
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0981-D144-B18E",
+          "description": "E2 Instance Core running in Finland",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02401614
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0A3A-4D14-E11B",
+          "description": "N2D AMD Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004055
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0B09-582A-AF83",
+          "description": "N4D Instance Ram running in Belgium",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00364
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0BBB-3733-F409",
+          "description": "N1 Predefined Instance Ram running in Milan",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00491492
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0BBD-3452-19A9",
+          "description": "SSD backed PD Capacity in Paris",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.1972
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0D18-A9AA-6DB3",
+          "description": "SSD backed Local Storage in Frankfurt",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.096
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0DB2-6C00-5A44",
+          "description": "SSD backed Local Storage in Madrid",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0944
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0F2A-2FA8-3F6A",
+          "description": "E2 Instance Core running in London",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0281037
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "0FAA-E6E0-A064",
+          "description": "T2D AMD Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004055
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "10A0-7F67-697B",
+          "description": "Spot Preemptible N1 Predefined Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.002797
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "123D-01A4-AFB7",
+          "description": "E2 Instance Ram running in Stockholm",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003069707
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "131B-85F0-8B01",
+          "description": "N1 Predefined Instance Core running in Turin",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04077819
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "17A8-D0A4-D7E5",
+          "description": "Storage PD Capacity in Zurich",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.052
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "180B-15A7-2156",
+          "description": "C3D Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00415695
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "1B51-BAD1-3C07",
+          "description": "N1 Predefined Instance Ram running in Warsaw",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005127
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "20B9-2A8D-4BFA",
+          "description": "E2 Instance Core running in Milan",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.025302
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "20CA-4604-6C2F",
+          "description": "E2 Instance Ram running in Turin",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003771354
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "21F8-F4C5-F869",
+          "description": "Nvidia Tesla T4 GPU attached to Spot Preemptible VMs running in EMEA",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.126
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "23BD-C186-EF37",
+          "description": "Storage PD Capacity in Turin",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              30.0,
+              0.0516
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "23C7-6154-9EA0",
+          "description": "N1 Predefined Instance Ram running in Stockholm",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00444885
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "2AAC-5430-5052",
+          "description": "N2 Instance Core running in Berlin",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073134
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "2CF6-3A15-7BB0",
+          "description": "SSD backed Local Storage in London",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.096
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "315D-05CC-A75E",
+          "description": "SSD backed PD Capacity in Netherlands",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.187
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "3203-7F26-9211",
+          "description": "Nvidia Tesla T4 GPU running in Milan",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.406
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "3476-9126-6E83",
+          "description": "Nvidia Tesla T4 GPU running in Berlin",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.539
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "35E6-B2EE-DE63",
+          "description": "N2 Instance Core running in Warsaw",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03825
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "378C-9DAC-0A5A",
+          "description": "SSD backed PD Capacity in Frankfurt",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.204
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "39F4-0112-6F39",
+          "description": "N1 Predefined Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004661
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "3A30-24A2-2E3A",
+          "description": "Spot Preemptible E2 Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.001926
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "3F62-44B1-2596",
+          "description": "Nvidia Tesla T4 GPU running in Paris",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.406
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4126-F537-64DC",
+          "description": "E2 Instance Ram running in Berlin",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00376612
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "429B-C30E-15FB",
+          "description": "Hyperdisk Balanced Capacity in Netherlands",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.084
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "42BD-4C76-86B9",
+          "description": "SSD backed Local Storage in Finland",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.088
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4581-3E00-63BC",
+          "description": "Balanced PD Capacity in Stockholm",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.1
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "474C-C480-DFA0",
+          "description": "Commitment v1: N2 Cpu in Netherlands for 1 Year",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "Commit1Yr",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.021925
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4AF8-7C1F-39C4",
+          "description": "External IP Charge on a Spot Preemptible VM",
+          "family": "Network",
+          "group": "IpAddress",
+          "usage_type": "OnDemand",
+          "regions": [
+            "global"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0025
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4C09-1F46-D168",
+          "description": "SSD backed PD Capacity in Finland",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.187
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4CC6-86A1-6D2D",
+          "description": "Commitment v1: N2 Ram in Netherlands for 1 Year",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "Commit1Yr",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.002938
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "4D98-E205-E7F1",
+          "description": "SSD backed PD Capacity in London",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.204
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "50A9-247F-E03E",
+          "description": "Balanced PD Capacity in Turin",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.12
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5204-BF31-7C76",
+          "description": "N4 Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003717
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "53BB-FF1B-0C91",
+          "description": "N2 Instance Core running in Frankfurt",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "56D3-3D40-B0F6",
+          "description": "E2 Instance Ram running in Warsaw",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00353742
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5881-96B1-93E3",
+          "description": "Storage PD Capacity in Warsaw",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.048
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "59FD-DA88-2A13",
+          "description": "N2 Instance Core running in Finland",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034806
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5BD9-71BC-76F5",
+          "description": "T2D AMD Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004058
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5C82-ADFD-7768",
+          "description": "N1 Predefined Instance Core running in Paris",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03666876
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5C8C-3C2D-B331",
+          "description": "N1 Predefined Instance Ram running in Frankfurt",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005458
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5CFD-16B2-4F41",
+          "description": "Balanced PD Capacity in Netherlands",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.11
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5D09-05FD-782D",
+          "description": "Balanced PD Capacity in Milan",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.116
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5D70-7762-2DE7",
+          "description": "E2 Instance Ram running in London",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00376602
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5FAA-2D1B-B96D",
+          "description": "Spot Preemptible E2 Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.01435
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "5FC8-B122-E95E",
+          "description": "T2D AMD Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.030278
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "61C7-C9D9-99A8",
+          "description": "Commitment v1: N2 Ram in Netherlands for 3 Year",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "Commit3Yr",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.002099
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "62A6-21EE-5C6A",
+          "description": "N1 Predefined Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034802
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "62AF-A39E-269B",
+          "description": "SSD backed Local Storage",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "us-central1",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.08
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6320-5E2C-96C1",
+          "description": "N2 Instance Core running in Zurich",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.041409
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "63E1-FFD5-0FA7",
+          "description": "Nvidia Tesla T4 GPU running in Warsaw",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.41
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6462-90BF-DCBB",
+          "description": "Spot Preemptible N2 Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.00831
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "64D3-DA96-E5F0",
+          "description": "N2 Instance Ram running in Warsaw",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005127
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6538-255A-391B",
+          "description": "N1 Predefined Instance Ram running in Madrid",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00499966
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "65F2-3615-8006",
+          "description": "N4D Instance Core running in Belgium",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.032053
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "66A2-68EA-56BE",
+          "description": "Static Ip Charge",
+          "family": "Network",
+          "group": "IpAddress",
+          "usage_type": "OnDemand",
+          "regions": [
+            "us-central1",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.01
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "66F2-6BE3-1229",
+          "description": "Balanced PD Capacity in Madrid",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.12
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6705-5025-AB92",
+          "description": "C3D Instance Core running in Belgium",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03255182
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6828-A0F1-21CC",
+          "description": "N4 Instance Ram running in Belgium",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003897894
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6A38-4AD7-FDB6",
+          "description": "Hyperdisk Balanced Capacity in Belgium",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.088
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6AE0-5081-89AF",
+          "description": "E2 Instance Ram running in Paris",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003391
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6AE1-525F-8B80",
+          "description": "Balanced PD Capacity",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "us-central1",
+            "us-central2",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.1
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6B82-25FC-503C",
+          "description": "SSD backed PD Capacity in Zurich",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.221
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6EA2-F2F1-BBB4",
+          "description": "N2 Instance Core running in London",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "6FAF-ADE7-FB07",
+          "description": "Nvidia Tesla T4 GPU running in EMEA",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.35
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "718A-81BA-2CBB",
+          "description": "N1 Predefined Instance Core running in Zurich",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.041409
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "7293-75B6-FE15",
+          "description": "N2 Instance Core running in Milan",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03666876
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "74C0-7359-E5EA",
+          "description": "N4D Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.030566
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "75B1-0AD9-928F",
+          "description": "N1 Predefined Instance Ram running in Berlin",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00545815
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "779E-BED5-F31F",
+          "description": "E2 Instance Ram running in Finland",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00321816
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "7919-4540-EDB2",
+          "description": "N1 Predefined Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004664
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "79CA-B6A3-8BA7",
+          "description": "N4 Instance Core running in Belgium",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03434331
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "7A7B-EA46-2897",
+          "description": "Storage PD Capacity in Frankfurt",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.048
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "7D80-F9E4-6A44",
+          "description": "E2 Instance Ram running in Frankfurt",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00376602
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "7F37-4B04-C4BF",
+          "description": "Balanced PD Capacity in Warsaw",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.13
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "8131-C7CF-24C6",
+          "description": "N1 Predefined Instance Core running in Warsaw",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03825
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "83E4-C062-FDEC",
+          "description": "Storage PD Capacity in Berlin",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              30.0,
+              0.0616
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "85A8-4AC6-02EC",
+          "description": "SSD backed PD Capacity in Milan",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.1972
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "8B33-9CF5-6D1E",
+          "description": "N2 Instance Ram running in Turin",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00546573
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "8C12-DA07-FA3C",
+          "description": "SSD backed PD Capacity in Warsaw",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.204
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "8CF1-FEA8-0F66",
+          "description": "N4D Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00348
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "8D1E-DEFB-CA72",
+          "description": "SSD backed Local Storage in Paris",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0928
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "91C8-B203-BE6C",
+          "description": "SSD backed Local Storage in Berlin",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.096
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9201-F0D0-15DA",
+          "description": "N2D AMD Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.030253
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "924B-F033-FB24",
+          "description": "N1 Predefined Instance Ram running in Finland",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004664
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9431-52B1-2C4F",
+          "description": "N1 Predefined Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034773
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "955B-B00E-ED15",
+          "description": "E2 Instance Core running in Warsaw",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0263922
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9597-C24E-C305",
+          "description": "Licensing Fee for Windows Server 2019 Datacenter Edition (CPU cost)",
+          "family": "License",
+          "group": "Google",
+          "usage_type": "OnDemand",
+          "regions": [
+            "global"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.046
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "985B-2944-7653",
+          "description": "T2D AMD Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.030253
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "98C4-AD9B-3F32",
+          "description": "E2 Instance Ram running in Milan",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.003391
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9A97-715A-D7C5",
+          "description": "Static Ip Charge in Netherlands",
+          "family": "Network",
+          "group": "IpAddress",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.011
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9BDF-0244-DB2A",
+          "description": "Nvidia Tesla T4 GPU running in London",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.41
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9C82-E173-62D8",
+          "description": "E2 Instance Ram running in Zurich",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00382977
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9D8C-EC5C-9714",
+          "description": "Nvidia Tesla T4 GPU running in Frankfurt",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.41
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9F0A-51AB-9A36",
+          "description": "Storage PD Capacity in Stockholm",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              30.0,
+              0.04
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9F61-45D7-D4FB",
+          "description": "N2 Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034773
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "9FE0-8F60-A9F0",
+          "description": "E2 Instance Core running in EMEA",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02399337
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A01C-8201-12AB",
+          "description": "E2 Instance Core running in Madrid",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.025738
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A109-54C1-7CB0",
+          "description": "N2 Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004661
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A13B-B06F-41D8",
+          "description": "Commitment v1: N2 Cpu in Netherlands for 3 Year",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "Commit3Yr",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.015661
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A4BC-2C00-F32C",
+          "description": "SSD backed PD Capacity in Turin",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.204
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A557-29AB-E13A",
+          "description": "N2 Instance Ram running in London",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005458
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A5A6-3EDC-7F3C",
+          "description": "N2 Instance Ram running in Frankfurt",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005458
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A7C6-F754-76FF",
+          "description": "N2 Instance Ram running in Zurich",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005551
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "A9C0-BADB-1C34",
+          "description": "N1 Predefined Instance Core running in Frankfurt",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "ABEC-4750-B9EF",
+          "description": "Balanced PD Capacity in Finland",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.11
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "AE8C-46C3-4994",
+          "description": "Storage PD Capacity in Netherlands",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.044
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "AF44-A7D7-A86B",
+          "description": "SSD backed PD Capacity in Madrid",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.2006
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "AF8B-3054-316D",
+          "description": "SSD backed Local Storage in Warsaw",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-central2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.096
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "AFD3-EF83-44EC",
+          "description": "E2 Instance Core running in Stockholm",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02290217
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B188-61DD-52E4",
+          "description": "SSD backed PD Capacity",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "us-central1",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.17
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B1B5-0BAA-CB31",
+          "description": "Balanced PD Capacity in Frankfurt",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.12
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B2D6-C457-C79B",
+          "description": "N1 Predefined Instance Core running in Berlin",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073134
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B319-78AD-242C",
+          "description": "N2 Instance Ram running in Milan",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00491492
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B3D3-FF1D-90CE",
+          "description": "N1 Predefined Instance Ram running in Paris",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00491492
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B46B-6090-FA88",
+          "description": "N2 Instance Core running in Netherlands",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034802
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B6B6-38EC-824B",
+          "description": "N2 Instance Ram running in Madrid",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00499966
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "B73D-B322-1BAB",
+          "description": "N1 Predefined Instance Core running in Milan",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03666876
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "BAC6-D3FF-B41C",
+          "description": "SSD backed Local Storage in Stockholm",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.084
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "BF1A-6647-009D",
+          "description": "Storage PD Capacity in London",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.048
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C054-7F72-A02E",
+          "description": "External IP Charge on a Standard VM",
+          "family": "Network",
+          "group": "IpAddress",
+          "usage_type": "OnDemand",
+          "regions": [
+            "global"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              720.0,
+              0.005
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C39A-7330-9248",
+          "description": "N1 Predefined Instance Core running in Finland",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.034806
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C458-9509-E762",
+          "description": "N2 Instance Ram running in Finland",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004664
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C639-5472-507A",
+          "description": "N2 Instance Core running in Turin",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04077819
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C702-28A4-2E92",
+          "description": "Spot Preemptible N2 Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "Preemptible",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.001113
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C8C8-6EAA-E72D",
+          "description": "N2 Instance Core running in Madrid",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03730098
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C921-088E-792A",
+          "description": "E2 Instance Core running in Frankfurt",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west3"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.0281037
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "C99E-D411-4C3C",
+          "description": "Balanced PD Capacity in Berlin",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.154
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "CAF4-ADE9-58BA",
+          "description": "Balanced PD Capacity in Zurich",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.13
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "CB05-9728-E731",
+          "description": "E2 Instance Core running in Berlin",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02810463
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "CCEF-2733-ADEB",
+          "description": "E2 Instance Core running in Zurich",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02857225
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "CEF4-0773-7924",
+          "description": "Storage PD Capacity in Finland",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.044
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D09D-F329-003F",
+          "description": "Balanced PD Capacity in Paris",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.116
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D279-B8D7-090F",
+          "description": "Storage PD Capacity in Milan",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west8"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0464
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D32A-6E94-6049",
+          "description": "Nvidia Tesla T4 GPU running in Zurich",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.45
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D484-E83B-5FD6",
+          "description": "N2D AMD Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004058
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D7FE-969C-E339",
+          "description": "Balanced PD Capacity in London",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.12
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D8BB-1B57-00B2",
+          "description": "SSD backed PD Capacity in Stockholm",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-north2"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.17
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D973-5D65-BAB2",
+          "description": "Storage PD Capacity",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "us-central1",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              30.0,
+              0.04
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "D9EA-4FF0-E394",
+          "description": "E2 Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00321816
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E083-93C6-55CD",
+          "description": "Storage PD Capacity in Paris",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0464
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E1DD-8C26-9FB1",
+          "description": "SSD backed PD Capacity in Berlin",
+          "family": "Storage",
+          "group": "SSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.2618
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E2C7-669A-E422",
+          "description": "N1 Predefined Instance Core running in Madrid",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03730098
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E398-659B-782A",
+          "description": "SSD backed Local Storage in Turin",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.096
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E3BF-72A4-1954",
+          "description": "N1 Predefined Instance Core running in London",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.04073
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E3F0-571B-0753",
+          "description": "Nvidia Tesla T4 GPU running in Netherlands",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.35
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E45C-6460-E782",
+          "description": "Storage PD Capacity in Madrid",
+          "family": "Storage",
+          "group": "PDStandard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.0472
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "E725-3CC5-D4BE",
+          "description": "SSD backed Local Storage attached to Spot Preemptible VMs",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "Preemptible",
+          "regions": [
+            "us-central1",
+            "us-east1",
+            "us-west1",
+            "asia-east1",
+            "europe-west1"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.048
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EA79-23AA-4001",
+          "description": "C3D Instance Ram running in Belgium",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004359255
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EBCD-7FC5-FB4A",
+          "description": "Nvidia Tesla T4 GPU running in Turin",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.4515
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EDF4-1ECA-4BD7",
+          "description": "E2 Instance Ram running in Madrid",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00345
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EFCB-2D7A-52B6",
+          "description": "N2 Instance Ram running in Netherlands",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.004664
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EFD6-197E-0212",
+          "description": "N2 Instance Ram running in Berlin",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west10"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00545815
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "EFD6-4D88-8C94",
+          "description": "SSD backed Local Storage in Netherlands",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west4"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.088
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "F126-3695-DA84",
+          "description": "SSD backed Local Storage in Zurich",
+          "family": "Storage",
+          "group": "LocalSSD",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west6"
+          ],
+          "unit": "GiBy.mo",
+          "tiers": [
+            [
+              0.0,
+              0.104
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "F264-E520-0277",
+          "description": "N2 Instance Core running in Paris",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.03666876
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "F268-6CE7-AC16",
+          "description": "E2 Instance Ram running in EMEA",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west1"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00321609
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "F83E-0ED3-1C12",
+          "description": "N2 Instance Ram running in Paris",
+          "family": "Compute",
+          "group": "RAM",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west9"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00491492
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "FA2B-A1AC-F5D0",
+          "description": "E2 Instance Core running in Turin",
+          "family": "Compute",
+          "group": "CPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.02813695
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "FA67-E720-D2DA",
+          "description": "N1 Predefined Instance Ram running in Turin",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west12"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.00546573
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "FB97-5DAD-C5DC",
+          "description": "Nvidia Tesla T4 GPU running in Madrid",
+          "family": "Compute",
+          "group": "GPU",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-southwest1"
+          ],
+          "unit": "h",
+          "tiers": [
+            [
+              0.0,
+              0.413
+            ]
+          ],
+          "list_tiers": null
+        },
+        {
+          "id": "FCA7-22FF-B1CC",
+          "description": "N1 Predefined Instance Ram running in London",
+          "family": "Compute",
+          "group": "N1Standard",
+          "usage_type": "OnDemand",
+          "regions": [
+            "europe-west2"
+          ],
+          "unit": "GiBy.h",
+          "tiers": [
+            [
+              0.0,
+              0.005458
+            ]
+          ],
+          "list_tiers": null
+        }
+      ]
+    }
+  ]
+}

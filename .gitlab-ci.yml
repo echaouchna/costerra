@@ -1,0 +1,148 @@
+# CI for costerra itself: toolchain from mise.toml, commands from the justfile.
+#
+# CI/CD variables:
+#   COSTERRA_API_KEY  (optional, masked) Cloud Billing API key: fixture tests
+#                     then price with the live catalog; the golden tests always
+#                     check exact costs with the committed price list.
+# Scheduled pipelines run `catalog-drift`: it detects SKUs renamed or removed
+# by Google (models that no longer find their price).
+
+stages: [check, build, scan, release]
+
+variables:
+  MISE_YES: "1"
+  COSTERRA_CACHE_DIR: "$CI_PROJECT_DIR/.costerra-cache"
+  IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH || $CI_COMMIT_TAG
+
+.mise:
+  image: debian:trixie-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates build-essential >/dev/null
+    - curl -fsSL https://mise.run | sh
+    - export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+    - mise trust
+    - mise install $MISE_TOOLS
+
+.not-scheduled:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+check:
+  extends: [.mise, .not-scheduled]
+  stage: check
+  variables:
+    MISE_TOOLS: rust just
+  cache:
+    key: costerra-check-${CI_COMMIT_REF_SLUG}
+    fallback_keys: ["costerra-check-${CI_DEFAULT_BRANCH}"]
+    paths:
+      - target/
+      - .costerra-cache/pricing/
+  script:
+    - |
+      if [ -n "${COSTERRA_API_KEY:-}" ]; then
+        mise exec -- cargo run --release --locked -- pricing sync --if-older-than 7d
+      else
+        export COSTERRA_SKIP_CATALOG_TESTS=1
+      fi
+    - mise exec -- just check
+    # Keep the CI cache small: no incremental data, no intermediate release artifacts.
+    - rm -rf target/*/incremental target/release/deps target/release/build
+
+audit:
+  extends: [.mise, .not-scheduled]
+  stage: check
+  variables:
+    MISE_TOOLS: rust just osv-scanner trivy github:EmbarkStudios/cargo-deny
+  script:
+    - mise exec -- just audit
+
+image:
+  extends: .not-scheduled
+  stage: build
+  image: docker:28
+  services:
+    - docker:28-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker buildx create --use --driver docker-container
+    - >
+      docker buildx build
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:buildcache
+      --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:buildcache,mode=max
+      --build-arg SOURCE_URL=$CI_PROJECT_URL
+      --label org.opencontainers.image.revision=$CI_COMMIT_SHA
+      --label org.opencontainers.image.version=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}
+      --tag "$IMAGE" --push .
+    - docker run --rm "$IMAGE" --version
+
+image-scan:
+  extends: .not-scheduled
+  stage: scan
+  needs: [image]
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+    TRIVY_NO_PROGRESS: "true"
+  script:
+    - trivy image --scanners vuln --exit-code 1 "$IMAGE"
+
+# Tag the scanned image: `latest` on the default branch, the version on tags.
+publish:
+  stage: release
+  needs: [image, image-scan, check, audit]
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - crane auth login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - if [ -n "$CI_COMMIT_TAG" ]; then crane tag "$IMAGE" "$CI_COMMIT_TAG"; fi
+    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then crane tag "$IMAGE" latest; fi
+
+# Scheduled: price the fixtures with a fresh catalog to detect SKUs that
+# Google renamed or removed, and rescan dependencies and the published image.
+catalog-drift:
+  extends: .mise
+  stage: check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $COSTERRA_API_KEY
+  variables:
+    MISE_TOOLS: rust just
+  script:
+    - mise exec -- cargo run --release --locked -- pricing sync
+    - mise exec -- cargo test --locked --test fixtures
+    # Show how the golden prices moved (informational: update with `just golden-catalog`).
+    - mise exec -- just golden-catalog && git diff --stat -- testdata/pricing || true
+
+scheduled-audit:
+  extends: .mise
+  stage: check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  variables:
+    MISE_TOOLS: rust just osv-scanner trivy github:EmbarkStudios/cargo-deny
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+  script:
+    - mise exec -- just audit
+    - mise exec -- trivy image --scanners vuln --exit-code 1 "$CI_REGISTRY_IMAGE:latest"

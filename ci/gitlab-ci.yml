@@ -1,0 +1,68 @@
+# Cost estimate comment on merge requests.
+#
+# Include in your .gitlab-ci.yml (use a tag instead of main to pin a version):
+#   include:
+#     - remote: https://raw.githubusercontent.com/echaouchna/costerra/main/ci/gitlab-ci.yml
+#
+# CI/CD variables:
+#   COSTERRA_API_KEY   Google API key with the Cloud Billing API enabled
+#                      (or run on a runner with Application Default Credentials)
+#   GITLAB_TOKEN       Project access token (api scope) to post MR comments
+#                      (masked, protected)
+# Optional:
+#   COSTERRA_IMAGE     Image to run (default: the published image, `latest`; pin
+#                      a version tag or digest for reproducible pipelines)
+#   COSTERRA_PATH      Path to analyse (default: .)
+#   COSTERRA_ARGS      Extra arguments, e.g. "--fail-increase-percent 20 --usage-file costerra-usage.yml"
+#   COSTERRA_PRICES_MAX_AGE  Re-download prices when the cached catalog is older (default 7d)
+
+costerra:
+  stage: test
+  image:
+    name: ${COSTERRA_IMAGE}
+    entrypoint: [""]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    COSTERRA_IMAGE: ghcr.io/echaouchna/costerra:latest
+    COSTERRA_PATH: "."
+    COSTERRA_PRICES_MAX_AGE: 7d
+    COSTERRA_CACHE_DIR: "$CI_PROJECT_DIR/.costerra-cache"
+    GIT_DEPTH: 0
+  cache:
+    key: costerra-prices
+    paths:
+      - .costerra-cache/
+  script:
+    - costerra --version
+    - costerra pricing sync --if-older-than "$COSTERRA_PRICES_MAX_AGE"
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - set +e
+    - costerra diff "$COSTERRA_PATH" --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --format markdown --out costerra.md $COSTERRA_ARGS
+    - status=$?
+    - set -e
+    - |
+      if [ -n "${GITLAB_TOKEN:-}" ] && [ -s costerra.md ]; then
+        marker='<!-- costerra-cost-comment -->'
+        notes="$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"
+        body=$(jq -Rs '{body: .}' < costerra.md)
+        # Find the previous costerra comment on any page of the notes.
+        existing=""
+        page=1
+        while [ -z "$existing" ]; do
+          batch=$(curl -sfS -H "PRIVATE-TOKEN: $GITLAB_TOKEN" "$notes?per_page=100&page=$page&sort=asc&order_by=created_at")
+          [ "$(printf '%s' "$batch" | jq 'length')" -eq 0 ] && break
+          existing=$(printf '%s' "$batch" | jq -r --arg m "$marker" '[.[] | select(.body | startswith($m) or startswith("### 💰 costerra"))][0].id // empty')
+          page=$((page + 1))
+        done
+        if [ -n "$existing" ]; then
+          curl -sfS -X PUT -H "PRIVATE-TOKEN: $GITLAB_TOKEN" -H "Content-Type: application/json" -d "$body" "$notes/$existing" >/dev/null
+        else
+          curl -sfS -X POST -H "PRIVATE-TOKEN: $GITLAB_TOKEN" -H "Content-Type: application/json" -d "$body" "$notes" >/dev/null
+        fi
+      fi
+    - exit $status
+  artifacts:
+    when: always
+    paths:
+      - costerra.md

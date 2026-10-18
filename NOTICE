@@ -1,0 +1,10 @@
+costerra
+Copyright 2026 Nabil Echaouch
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes Google Cloud list prices (testdata/pricing/golden-catalog.json,
+test fixture only) and machine type specifications (data/machine_types.tsv)
+derived from public Google Cloud information. Google Cloud is a trademark of
+Google LLC; costerra is not affiliated with or endorsed by Google, Rabbit
+(followrabbit.ai) or Infracost.

@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.tsv text eol=lf
+# Test fixtures and generated data: excluded from language statistics.
+testdata/** linguist-vendored
+data/** linguist-generated
+testdata/pricing/golden-catalog.json linguist-generated -diff

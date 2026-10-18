@@ -1,0 +1,4 @@
+# Remove unused crates from the global cargo cache (~/.cargo/registry)
+# regularly: downloaded archives after 3 months, extracted sources after 1.
+[cache]
+auto-clean-frequency = "1 day"
