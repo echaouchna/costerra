@@ -433,6 +433,20 @@ only credentials. costerra looks for them in this order:
    a service account, workload identity);
 3. `gcloud auth print-access-token`.
 
+To create an API key, restricted to the Cloud Billing API (the Catalog API is
+free; its quota is charged to the key's project):
+
+```sh
+gcloud services enable cloudbilling.googleapis.com --project "$PROJECT"
+gcloud services api-keys create --project "$PROJECT" --display-name costerra \
+  --api-target service=cloudbilling.googleapis.com
+gcloud services api-keys get-key-string <KEY_NAME> --project "$PROJECT"   # KEY_NAME is printed by the previous command
+export COSTERRA_API_KEY=…
+```
+
+An API key is used before ADC and only gives list prices: leave it unset where
+you want contract prices.
+
 **Contract prices** (Cloud Billing Pricing API) need OAuth credentials (2 or 3,
 not an API key) and these permissions:
 
