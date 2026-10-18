@@ -1,6 +1,6 @@
 [package]
 name = "costerra"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Fast cost estimates and optimization insights for Google Cloud Terraform & Terragrunt"
 license = "Apache-2.0"
@@ -31,13 +31,13 @@ postcard = { version = "1.1.3", features = ["use-std"], default-features = false
 rayon = "1.12.0"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "gzip", "query", "blocking"] }
-serde = { version = "1.0.229", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde-saphyr = "2.0.0"
 serde_json = "1.0.154"
 tar = "0.4.46"
 tempfile = "3.27.0"
 terminal_size = "0.4.4"
-tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 walkdir = "2.5.0"
@@ -47,6 +47,12 @@ zstd = "0.14.3"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Release code with symbols, for profilers (`just profile`, `just mem`).
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
 
 # Keep target/ small: tests and clippy use this profile (only the shipped
 # binary is built in release). Backtraces keep file:line for costerra code;

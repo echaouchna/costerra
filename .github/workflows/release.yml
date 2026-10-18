@@ -2,7 +2,9 @@ name: Release
 
 # On a `v*` tag: binaries for Linux (glibc 2.35+) and macOS, checksums,
 # build provenance attestations, a GitHub release with the CHANGELOG section,
-# and `cargo publish` with crates.io trusted publishing (see the crates-io job).
+# `cargo publish` with crates.io trusted publishing (see the crates-io job),
+# and, for stable versions when HOMEBREW_TAP is set, the Homebrew formula
+# (homebrew.yml).
 
 on:
   push:
@@ -135,3 +137,16 @@ jobs:
       - run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  homebrew:
+    name: Homebrew formula
+    needs: release
+    # Stable versions only (no `-rc1`…), once the tap is configured: repository
+    # variable HOMEBREW_TAP (e.g. echaouchna/homebrew-tap) and secret
+    # HOMEBREW_TAP_TOKEN.
+    if: ${{ vars.HOMEBREW_TAP != '' && !contains(inputs.tag || github.ref_name, '-') }}
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

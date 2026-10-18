@@ -77,6 +77,12 @@ pub fn parse_module_dir(dir: &Path) -> Arc<ParsedModule> {
     parsed
 }
 
+/// Forget the parsed module of a directory (after its files were edited).
+pub fn invalidate(dir: &Path) {
+    let key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    CACHE.write().remove(&key);
+}
+
 pub fn tf_files(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()

@@ -24,9 +24,9 @@
   <!-- ───────────── Top line ───────────── -->
   <a class="topline" href="https://github.com/echaouchna/costerra/releases" target="_blank" rel="noopener">
     <span class="tl-tag">NEW</span>
-    <span>costerra 0.2.0: recommendations from your real usage</span>
+    <span>costerra 0.3.0: rightsizing in your code</span>
     <span class="tl-sep">/</span>
-    <span class="tl-dim">Cloud Monitoring · existing commitments · idle &amp; rightsizing</span>
+    <span class="tl-dim">--rightsize · down and up: VMs, Cloud SQL, Cloud Run CPU &amp; memory · BigQuery storage model · remote states · console links</span>
     <span class="tl-arrow">Release notes →</span>
   </a>
 
@@ -41,9 +41,10 @@
         <a href="#features"><i>01</i>Features</a>
         <a href="#how"><i>02</i>Method</a>
         <a href="#savings"><i>03</i>Savings</a>
-        <a href="#ci"><i>04</i>CI</a>
-        <a href="#coverage"><i>05</i>Coverage</a>
-        <a href="#install"><i>06</i>Install</a>
+        <a href="#rightsizing"><i>04</i>Rightsizing</a>
+        <a href="#ci"><i>05</i>CI</a>
+        <a href="#coverage"><i>06</i>Coverage</a>
+        <a href="#install"><i>07</i>Install</a>
       </nav>
       <div class="nav-cta">
         <a class="nav-gh" href="https://github.com/echaouchna/costerra" target="_blank" rel="noopener">
@@ -106,7 +107,7 @@
             </div>
           </div>
           <figcaption>
-            <span>Fig. 1 — <code>costerra breakdown live/</code>, condensed</span>
+            <span>Fig. 1 — <code>costerra breakdown live/ --recommendations</code>, condensed</span>
             <button class="link-btn" id="reprint" type="button">↻ reprint</button>
           </figcaption>
         </figure>
@@ -255,9 +256,10 @@
           <article class="spec-cell span-3 reveal" style="--d:.06s">
             <span class="spec-n">07</span>
             <h3>Private by default</h3>
-            <p>Your code is evaluated on your machine and is never uploaded. costerra only makes read-only calls to Google Cloud APIs, for prices, observed usage and recommendations.</p>
+            <p>Your code is evaluated on your machine and is never uploaded. costerra only reads from Google Cloud APIs, for prices, observed usage and recommendations, and skips what your credentials cannot read.</p>
 <pre class="fig code-mini" aria-hidden="true"><span class="k">read-only</span> cloudbilling.googleapis.com  <span class="s"># prices</span>
 <span class="k">read-only</span> monitoring.googleapis.com    <span class="s"># observed usage</span>
+<span class="k">metadata </span> bigquery.googleapis.com      <span class="s"># dataset sizes</span>
 <span class="k">read-only</span> recommender.googleapis.com   <span class="s"># recommendations</span>
 <span class="k">never</span>     your Terraform code</pre>
           </article>
@@ -318,7 +320,7 @@
             <span class="sec-mark">§ 03 — Recommendations</span>
             <h2>Every bill comes back <em>marked up in red ink.</em></h2>
           </div>
-          <p>Each finding is matched to the Terraform resource it concerns and comes with an estimated monthly saving. Rules that only make sense outside production, such as Spot, single-zone or no HA, are applied only there.</p>
+          <p>Add <code>--recommendations</code> and each finding is matched to the Terraform resource it concerns, with an estimated monthly saving. Rules that only make sense outside production, such as Spot, single-zone or no HA, are applied only there. With access to the metrics, <code>--rightsize</code> explains which resources are oversized or saturated (VMs, Cloud SQL, Cloud Run, BigQuery storage model), points at the line that sets the value, shows the cost after the change and links to the console to check the metrics.</p>
         </header>
 
         <div class="audit reveal" id="audit">
@@ -373,12 +375,68 @@
       </div>
     </section>
 
-    <!-- ───────────── §04 CI ───────────── -->
+    <!-- ───────────── §04 Rightsizing ───────────── -->
+    <section class="sec" id="rightsizing">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 04 — Rightsizing</span>
+            <h2>Sized from what it really uses, <em>down or up.</em></h2>
+          </div>
+          <p>With <code>--rightsize</code>, costerra reads the last 30 days of Cloud Monitoring metrics and BigQuery storage, and tells you which resources are oversized or saturated, why, which line of your code sets the value, and what it would cost after the change. It never edits the code: every suggestion links to the console so you can check the graphs first.</p>
+        </header>
+
+        <div class="install-grid">
+          <ol class="steps reveal">
+            <li>
+              <span class="step-n">i.</span>
+              <div><b>What</b><small>Compute Engine machine types, Cloud SQL tiers, Cloud Run and Cloud Functions CPU, memory and warm instances, BigQuery physical vs logical storage. Smaller when little used, larger when saturated.</small></div>
+            </li>
+            <li>
+              <span class="step-n">ii.</span>
+              <div><b>Why</b><small>The observed CPU, memory or traffic, and the threshold they crossed.</small></div>
+            </li>
+            <li>
+              <span class="step-n">iii.</span>
+              <div><b>Where</b><small>The line that sets the value: the resource block, a <code>.tfvars</code> file, the entry of your environment in a map, a module call, Terragrunt inputs. Project ids are read from your remote states.</small></div>
+            </li>
+            <li>
+              <span class="step-n">iv.</span>
+              <div><b>Check</b><small>A link to the resource in the Google Cloud console, and the monthly cost before and after the change.</small></div>
+            </li>
+          </ol>
+          <div class="code-card reveal">
+            <div class="code-head"><span>costerra breakdown live/ --rightsize</span></div>
+<pre><span class="a">📐 Rightsizing from observed usage (2)</span>
+
+ prod/api: google_cloud_run_v2_service.api
+    limits.memory  <span class="r">2Gi</span> → <span class="g">4Gi</span>
+    <span class="c">Why</span>     memory peak 100% of the limit over 30 days
+    <span class="c">Where</span>   cloudrun.tf:42  <span class="c">(the "prod" entry)</span>
+            <span class="r">- memory = { dev = "1Gi", prod = "2Gi" }</span>
+            <span class="g">+ memory = { dev = "1Gi", prod = "4Gi" }</span>
+    <span class="c">Check</span>   console.cloud.google.com/run/detail/…/metrics
+    <span class="c">Cost</span>    <span class="a">costs $9.40/mo more</span>
+
+ dev/db: google_sql_database_instance.main
+    settings.tier  <span class="r">db-custom-4-10240</span> → <span class="g">db-custom-2-10240</span>
+    <span class="c">Why</span>     CPU mean 5.7%, 95th percentile 6.3% over 30 days
+    <span class="c">Where</span>   environments/dev.tfvars:5
+            <span class="r">- tier = "db-custom-4-10240"</span>
+            <span class="g">+ tier = "db-custom-2-10240"</span>
+    <span class="c">Check</span>   console.cloud.google.com/sql/instances/…
+    <span class="c">Cost</span>    $152.33 → $99.87/month  <span class="g">saves $52.46/mo</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §05 CI ───────────── -->
     <section class="sec sec-dark" id="ci">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 04 — Continuous integration</span>
+            <span class="sec-mark">§ 05 — Continuous integration</span>
             <h2>A cost review on every pull request, <em>with a budget that can say no.</em></h2>
           </div>
           <p>costerra comments on each pull request with the cost diff, then updates that same comment on every push. Policies set the exit code, so a budget can block a merge. <code>diff --base</code> reads the base ref with <code>git archive</code> and never writes to the repository.</p>
@@ -483,12 +541,12 @@
       </div>
     </section>
 
-    <!-- ───────────── §05 Coverage ───────────── -->
+    <!-- ───────────── §06 Coverage ───────────── -->
     <section class="sec" id="coverage">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 05 — Coverage</span>
+            <span class="sec-mark">§ 06 — Coverage</span>
             <h2><span data-count="122">0</span> priced resource types, <em>and about 300 more known to be free.</em></h2>
           </div>
           <p>From Compute Engine to Vertex AI. Run <code>costerra resources</code> to list every supported type and its usage keys.</p>
@@ -517,21 +575,22 @@
       </div>
     </section>
 
-    <!-- ───────────── §06 Install ───────────── -->
+    <!-- ───────────── §07 Install ───────────── -->
     <section class="sec" id="install">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 06 — Install</span>
+            <span class="sec-mark">§ 07 — Install</span>
             <h2>Up and running <em>in under a minute.</em></h2>
           </div>
-          <p>A crate on crates.io, prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>
+          <p>A crate on crates.io, a Homebrew formula, prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>
         </header>
 
         <div class="install-grid">
           <div class="tabs folder reveal" data-tabs>
             <div class="tab-list" role="tablist">
               <button role="tab" class="on" data-tab="cargo">Cargo</button>
+              <button role="tab" data-tab="brew">Homebrew</button>
               <button role="tab" data-tab="git">Git</button>
               <button role="tab" data-tab="docker">Docker</button>
               <button role="tab" data-tab="bin">Binary</button>
@@ -540,6 +599,12 @@
               <div class="code-card">
                 <div class="code-head"><span>Rust 1.89 or newer</span><button class="copy" data-copy-target="code-cargo">copy</button></div>
 <pre id="code-cargo"><span class="p">$</span> cargo install costerra</pre>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="brew">
+              <div class="code-card">
+                <div class="code-head"><span>macOS · Linux</span><button class="copy" data-copy-target="code-brew">copy</button></div>
+<pre id="code-brew"><span class="p">$</span> brew install echaouchna/tap/costerra</pre>
               </div>
             </div>
             <div class="tab-panel" data-panel="git">
@@ -581,6 +646,10 @@
               <span class="step-n">iii.</span>
               <div><b>Compare</b><code>costerra diff path/to/infra --base origin/main</code><small>Run it in CI to get a cost comment on every merge request.</small></div>
             </li>
+            <li>
+              <span class="step-n">iv.</span>
+              <div><b>Optimize</b><code>costerra breakdown path/to/infra --rightsize</code><small>From observed usage: why, the lines to change, the cost after them and a console link. Add <code>--recommendations</code> for every finding, <code>--details</code> for everything.</small></div>
+            </li>
           </ol>
         </div>
       </div>
@@ -590,7 +659,7 @@
     <section class="cta">
       <canvas class="contours" data-contours="paper" aria-hidden="true"></canvas>
       <div class="container cta-inner reveal">
-        <span class="sec-mark light">§ 07 — Conclusion</span>
+        <span class="sec-mark light">§ 08 — Conclusion</span>
         <h2>Stop guessing your <em>Google Cloud bill.</em></h2>
         <p>costerra is free and open source under Apache-2.0. Run it once on your infrastructure repository and see what you could save.</p>
         <div class="hero-ctas">

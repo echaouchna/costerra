@@ -69,10 +69,87 @@ pub enum Auth {
     Bearer(String),
 }
 
+/// Service account to impersonate for every Google API call
+/// (`--impersonate-service-account`), set once at startup.
+static IMPERSONATE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// Impersonated token, minted once per process.
+static IMPERSONATED: tokio::sync::OnceCell<std::result::Result<String, String>> = tokio::sync::OnceCell::const_new();
+
+/// Impersonate this service account in all OAuth calls. The caller needs
+/// Service Account Token Creator (`roles/iam.serviceAccountTokenCreator`) on it.
+pub fn set_impersonation(service_account: &str) {
+    if !service_account.is_empty() {
+        let _ = IMPERSONATE.set(service_account.to_string());
+    }
+}
+
+pub fn impersonation() -> Option<&'static str> {
+    IMPERSONATE.get().map(String::as_str)
+}
+
+/// Why impersonation failed, when it was attempted and failed.
+pub fn impersonation_error() -> Option<&'static str> {
+    IMPERSONATED.get().and_then(|r| r.as_ref().err()).map(String::as_str)
+}
+
+/// Cache file name for data read with the current identity: results (and
+/// refusals) read as one identity must not be reused as another.
+pub fn identity_file(base: &str) -> String {
+    match impersonation() {
+        Some(sa) => {
+            let id: String = sa.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+            format!("{base}-{id}.json")
+        }
+        None => format!("{base}.json"),
+    }
+}
+
 pub async fn resolve_auth(api_key: Option<String>) -> Result<Auth> {
     if let Some(k) = api_key.filter(|k| !k.is_empty()) {
         return Ok(Auth::ApiKey(k));
     }
+    let base = user_auth().await?;
+    match (impersonation(), base) {
+        (Some(sa), Auth::Bearer(t)) => {
+            let token = IMPERSONATED.get_or_init(|| async { impersonate(&t, sa).await.map_err(|e| format!("{e:#}")) }).await;
+            match token {
+                Ok(t) => Ok(Auth::Bearer(t.clone())),
+                Err(e) => bail!("{e}"),
+            }
+        }
+        (_, a) => Ok(a),
+    }
+}
+
+/// An access token of `service_account`, from the IAM Credentials API.
+async fn impersonate(token: &str, service_account: &str) -> Result<String> {
+    impersonate_at("https://iamcredentials.googleapis.com", token, service_account).await
+}
+
+async fn impersonate_at(base: &str, token: &str, service_account: &str) -> Result<String> {
+    let url = format!("{base}/v1/projects/-/serviceAccounts/{service_account}:generateAccessToken");
+    let body = serde_json::json!({"scope": ["https://www.googleapis.com/auth/cloud-platform"], "lifetime": "3600s"});
+    let r = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .with_context(|| format!("impersonating {service_account}"))?;
+    let status = r.status();
+    let j: serde_json::Value = r.json().await.unwrap_or_default();
+    match j["accessToken"].as_str() {
+        Some(t) if status.is_success() => Ok(t.to_string()),
+        _ => bail!(
+            "cannot impersonate {service_account} (HTTP {status}): {}; grant roles/iam.serviceAccountTokenCreator on it",
+            j["error"]["message"].as_str().unwrap_or("no access token")
+        ),
+    }
+}
+
+/// Credentials of the user or the runtime: ADC, then gcloud.
+async fn user_auth() -> Result<Auth> {
     match gcp_auth::provider().await {
         Ok(p) => {
             let t = p.token(&["https://www.googleapis.com/auth/cloud-platform"]).await.context("obtaining access token")?;
@@ -236,6 +313,7 @@ fn money_value(m: &serde_json::Value) -> f64 {
     units + m["nanos"].as_f64().unwrap_or(0.0) / 1e9
 }
 
+#[derive(Clone)]
 pub struct AccountPrice {
     pub unit: String,
     pub contract: Vec<(f64, f64)>,
@@ -307,7 +385,7 @@ pub fn apply_account_prices(f: &mut CatalogFile, billing_account: &str, prices: 
     for svc in &mut f.services {
         for sku in &mut svc.skus {
             let Some(ap) = prices.get(&sku.id) else { continue };
-            if !ap.unit.is_empty() && ap.unit != sku.unit {
+            if !ap.unit.is_empty() && *ap.unit != *sku.unit {
                 tracing::debug!("{}: unit {} differs from catalog unit {}, keeping list price", sku.id, ap.unit, sku.unit);
                 continue;
             }
@@ -345,4 +423,34 @@ pub fn import_dir(dir: &Path, currency: &str) -> Result<CatalogFile> {
         out.push(ServiceSkus { id: id.to_string(), name: name.to_string(), skus });
     }
     Ok(CatalogFile { version: CATALOG_VERSION, currency: currency.to_string(), fetched_at: now(), billing_account: None, services: out })
+}
+
+#[cfg(test)]
+mod impersonation_tests {
+    use super::*;
+    use crate::util::fake_http;
+
+    #[test]
+    fn impersonation_exchanges_the_token() {
+        let server = fake_http::serve(|req| {
+            if req.path.ends_with("/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken")
+                && req.header("authorization") == Some("Bearer user")
+            {
+                let body: serde_json::Value = serde_json::from_str(&req.body).unwrap();
+                assert_eq!(body["scope"][0], "https://www.googleapis.com/auth/cloud-platform");
+                (200, serde_json::json!({"accessToken": "sa-token", "expireTime": "2026-10-18T16:00:00Z"}).to_string())
+            } else {
+                (403, serde_json::json!({"error": {"message": "Permission 'iam.serviceAccounts.getAccessToken' denied"}}).to_string())
+            }
+        });
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let ok = rt.block_on(impersonate_at(&server.url, "user", "sa@p.iam.gserviceaccount.com")).unwrap();
+        assert_eq!(ok, "sa-token");
+        let err = rt.block_on(impersonate_at(&server.url, "other", "sa@p.iam.gserviceaccount.com")).unwrap_err().to_string();
+        assert!(
+            err.contains("cannot impersonate sa@p.iam.gserviceaccount.com (HTTP 403")
+                && err.contains("roles/iam.serviceAccountTokenCreator"),
+            "{err}"
+        );
+    }
 }

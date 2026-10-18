@@ -535,6 +535,25 @@ impl<'a> Ctx<'a> {
         c
     }
 
+    /// An observed value that is not a usage key of the cost model (e.g. the
+    /// bytes a bucket sent).
+    pub fn observed_value(&self, key: &str) -> Option<f64> {
+        let v = self.observed.and_then(|o| o.usage.get(key).copied());
+        if v.is_some() {
+            self.basis.set(Basis::Observed);
+        }
+        v
+    }
+
+    /// Observed memory utilization (Cloud SQL).
+    pub fn observed_memory(&self) -> Option<CpuStats> {
+        let m = self.observed.and_then(|o| o.memory);
+        if m.is_some() {
+            self.basis.set(Basis::Observed);
+        }
+        m
+    }
+
     /// Share of this VM's vCPUs already covered by active commitments.
     pub fn committed_fraction(&self) -> Option<f64> {
         let f = self.observed.and_then(|o| o.committed_fraction);
@@ -746,6 +765,9 @@ impl<'a> Ctx<'a> {
             detail: detail.into(),
             monthly_savings: monthly_savings.map(|s| (s * 100.0).round() / 100.0),
             basis: self.basis.get(),
+            change: None,
+            // Only for advice that relies on observed metrics.
+            console_url: self.observed.filter(|_| self.basis.get() == Basis::Observed).and_then(|o| o.console.clone()),
         }
     }
 

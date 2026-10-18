@@ -22,6 +22,9 @@ pub struct Cli {
     /// Cache directory for prices and modules (default: ~/.cache/costerra)
     #[arg(long, global = true, env = "COSTERRA_CACHE_DIR")]
     pub cache_dir: Option<PathBuf>,
+    /// Service account to impersonate for Google API calls (needs Service Account Token Creator on it)
+    #[arg(long, global = true, env = "COSTERRA_IMPERSONATE_SERVICE_ACCOUNT", value_name = "EMAIL")]
+    pub impersonate_service_account: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -47,7 +50,7 @@ impl ColorChoice {
 #[derive(Subcommand)]
 pub enum Cmd {
     /// Show a cost breakdown of Terraform / Terragrunt code or a plan JSON
-    Breakdown(RunArgs),
+    Breakdown(BreakdownArgs),
     /// Show the cost difference against a git ref or a baseline report
     Diff(DiffArgs),
     /// Manage the local pricing catalog
@@ -105,6 +108,9 @@ pub struct EvalArgs {
     /// Allow terragrunt run_cmd() to execute commands
     #[arg(long)]
     pub allow_run_cmd: bool,
+    /// Do not read terraform_remote_state outputs from the GCS state buckets
+    #[arg(long, env = "COSTERRA_NO_REMOTE_STATE", value_parser = FalseyValueParser::new())]
+    pub no_remote_state: bool,
 }
 
 #[derive(Args, Clone)]
@@ -137,8 +143,11 @@ pub struct RunArgs {
     /// Re-fetch a contract price only if cached longer than this (e.g. 0, 90s, 15m, 1h; default 15m)
     #[arg(long, env = "COSTERRA_PRICE_CACHE_TTL", value_parser = parse_duration)]
     pub price_cache_ttl: Option<u64>,
-    /// Skip optimization recommendations
-    #[arg(long)]
+    /// Show optimization recommendations
+    #[arg(long, env = "COSTERRA_RECOMMENDATIONS", value_parser = FalseyValueParser::new())]
+    pub recommendations: bool,
+    /// Skip optimization recommendations (the default; overrides --recommendations)
+    #[arg(long, hide = true)]
     pub no_recommendations: bool,
     /// Skip usage-based recommendations from Google Cloud Recommender
     #[arg(long, env = "COSTERRA_NO_INSIGHTS", value_parser = FalseyValueParser::new())]
@@ -152,18 +161,46 @@ pub struct RunArgs {
     /// Price usage-based resources without estimates with an example profile
     #[arg(long, value_enum, env = "COSTERRA_USAGE_PROFILE")]
     pub usage_profile: Option<costerra::profiles::Profile>,
-    /// Include per-billing-account free tiers in estimates
+    /// Include per-billing-account free tiers in estimates (and show them)
     #[arg(long)]
     pub include_free_tier: bool,
+    /// Show the free tiers of the services used
+    #[arg(long)]
+    pub free_tier: bool,
     /// Show zero-cost resources and warnings in the table
     #[arg(long)]
     pub show_all: bool,
+    /// Show all details: recommendations, free tiers, zero-cost resources,
+    /// warnings, price notes and notes about data sources
+    #[arg(long)]
+    pub details: bool,
     /// Show every instance of counted resources instead of `name[*] ×N` groups
     #[arg(long)]
     pub no_group: bool,
     /// Exit with code 2 if the total monthly cost exceeds this amount
     #[arg(long)]
     pub fail_above: Option<f64>,
+}
+
+#[derive(Args)]
+pub struct BreakdownArgs {
+    #[command(flatten)]
+    pub run: RunArgs,
+    /// Rightsizing from observed usage (Cloud Monitoring): why, where in the
+    /// code, the cost after the change and a console link to check it
+    #[arg(long)]
+    pub rightsize: bool,
+}
+
+impl RunArgs {
+    /// Whether recommendations are shown.
+    pub fn show_recommendations(&self) -> bool {
+        (self.recommendations || self.details) && !self.no_recommendations
+    }
+
+    pub fn show_free_tier(&self) -> bool {
+        self.free_tier || self.include_free_tier || self.details
+    }
 }
 
 #[derive(Args)]

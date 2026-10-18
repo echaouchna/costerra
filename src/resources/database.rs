@@ -3,7 +3,7 @@
 
 use super::machine::COMPUTE;
 use super::{Ctx, Env, Spec, set_path, usage};
-use crate::cost::{Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
+use crate::cost::{CodeChange, Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
 use crate::hcl::value::{Value, fmt_number};
 use crate::pricing::query::{Query, normalize_region};
 use crate::tf::evaluate::ResourceInstance;
@@ -215,6 +215,62 @@ impl SqlTier {
             SqlSeries::C4a => ("Enterprise Plus (Performance Optimized )?C4A vCPU in", "Enterprise Plus C4A RAM in"),
             SqlSeries::C4 => ("Enterprise Plus C4 vCPU in", "Enterprise Plus C4 RAM in"),
         }
+    }
+}
+
+/// A tier of the same series with half the vCPUs (and half the memory when
+/// `halve_memory`), or None when there is no such tier.
+fn smaller_sql_tier(name: &str, tier: &SqlTier, halve_memory: bool) -> Option<String> {
+    if tier.shared() || tier.vcpus < 2.0 {
+        return None;
+    }
+    let v = tier.vcpus / 2.0;
+    let p: Vec<&str> = name.strip_prefix("db-")?.split('-').collect();
+    match p.as_slice() {
+        // Custom: 1 or an even number of vCPUs, 0.9 to 6.5 GiB per vCPU, in multiples of 256 MiB.
+        ["custom", c, _] if c.parse::<f64>().is_ok() => {
+            if v != 1.0 && v % 2.0 != 0.0 {
+                return None;
+            }
+            let mem_gb = if halve_memory { tier.memory_gb / 2.0 } else { tier.memory_gb };
+            let mem_mb = (mem_gb * 1024.0 / 256.0).round() * 256.0;
+            (0.9..=6.5).contains(&(mem_mb / 1024.0 / v)).then(|| format!("db-custom-{}-{}", fmt(v), fmt(mem_mb)))
+        }
+        // Memory is proportional to the vCPUs.
+        ["n1", kind, _] if halve_memory && [1.0, 2.0, 4.0, 8.0, 16.0, 32.0].contains(&v) => Some(format!("db-n1-{kind}-{}", fmt(v))),
+        ["perf", "optimized", s @ ("N" | "n"), _] if halve_memory && [2.0, 4.0, 8.0, 16.0, 32.0, 48.0, 64.0].contains(&v) => {
+            Some(format!("db-perf-optimized-{s}-{}", fmt(v)))
+        }
+        _ => None,
+    }
+}
+
+/// A larger tier of the same series for an instance short of CPU (twice the
+/// vCPUs) and/or memory (twice the memory), or None when there is none.
+fn larger_sql_tier(name: &str, tier: &SqlTier, cpu: bool, memory: bool) -> Option<String> {
+    if tier.shared() || !(cpu || memory) {
+        return None;
+    }
+    let p: Vec<&str> = name.strip_prefix("db-")?.split('-').collect();
+    match p.as_slice() {
+        ["custom", c, _] if c.parse::<f64>().is_ok() => {
+            let mut v = if cpu { tier.vcpus * 2.0 } else { tier.vcpus };
+            let mut mem_gb = if memory { tier.memory_gb * 2.0 } else { tier.memory_gb };
+            // 0.9 to 6.5 GiB per vCPU: more vCPUs when the memory needs them.
+            while mem_gb / v > 6.5 {
+                v = if v == 1.0 { 2.0 } else { v + 2.0 };
+            }
+            mem_gb = mem_gb.max(v * 0.9);
+            let mem_mb = (mem_gb * 1024.0 / 256.0).ceil() * 256.0;
+            (v <= 96.0).then(|| format!("db-custom-{}-{}", fmt(v), fmt(mem_mb)))
+        }
+        ["n1", "standard", _] if memory && !cpu => Some(format!("db-n1-highmem-{}", fmt(tier.vcpus))),
+        ["n1", kind, _] if tier.vcpus * 2.0 <= 64.0 => Some(format!("db-n1-{kind}-{}", fmt(tier.vcpus * 2.0))),
+        ["perf", "optimized", s @ ("N" | "n"), _] => {
+            let v = tier.vcpus * 2.0;
+            [4.0, 8.0, 16.0, 32.0, 64.0, 128.0].contains(&v).then(|| format!("db-perf-optimized-{s}-{}", fmt(v)))
+        }
+        _ => None,
     }
 }
 
@@ -701,6 +757,75 @@ fn sql_rules(ctx: &Ctx, cr: &CostedResource) -> Vec<Recommendation> {
             ),
             None,
         ));
+    }
+
+    // Upsize: an instance short of CPU or memory.
+    let cpu_obs = ctx.observed_cpu().filter(|c| c.days >= 7.0);
+    let mem_obs = ctx.observed_memory().filter(|m| m.days >= 7.0);
+    let cpu_bound = cpu_obs.is_some_and(|c| c.p95 >= 0.85);
+    let mem_bound = mem_obs.is_some_and(|m| m.p95 >= 0.9);
+    if running
+        && (cpu_bound || mem_bound)
+        && let Some(new_tier) = larger_sql_tier(conf.tier_name, tier, cpu_bound, mem_bound)
+    {
+        let extra = ctx.reprice(|a| set_path(a, "settings.0.tier", Value::from(new_tier.as_str()))).map(|n| n - cr.monthly_cost);
+        let short = match (cpu_bound, mem_bound) {
+            (true, true) => "CPU and memory",
+            (true, false) => "CPU",
+            _ => "memory",
+        };
+        let stat = |label: &str, s: Option<crate::observed::CpuStats>| {
+            s.map(|s| format!("{label} mean {:.1}%, 95th percentile {:.1}%", s.mean * 100.0, s.p95 * 100.0))
+        };
+        let usage: Vec<String> = [stat("CPU", cpu_obs), stat("memory", mem_obs)].into_iter().flatten().collect();
+        let mut rec = ctx.rec(
+            "sql-upsize",
+            if mem_bound { Severity::High } else { Severity::Medium },
+            format!("Upsize {} to {new_tier}: it is short of {short}", conf.tier_name),
+            format!(
+                "Use over {:.0} days: {} (suggested from a CPU 95th percentile of 85% or a memory 95th percentile of 90%). A saturated database slows every query (and runs out of memory under load). The larger tier costs more. Changing the tier restarts the instance.",
+                cpu_obs.or(mem_obs).map_or(0.0, |s| s.days),
+                usage.join(", ")
+            ),
+            extra.map(|e| -e),
+        );
+        rec.change = Some(CodeChange { attribute: "settings.0.tier".into(), from: conf.tier_name.to_string(), to: new_tier, unset: false });
+        out.push(rec);
+    }
+
+    // Rightsize: half the vCPUs of an instance that uses little of its CPU
+    // (and half the memory when its memory use is low too).
+    if running
+        && !(cpu_bound || mem_bound)
+        && let Some(c) = cpu_obs.filter(|c| c.p95 < 0.35 && c.mean < 0.2)
+    {
+        let mem = mem_obs;
+        let halve_memory = mem.is_some_and(|m| m.p95 < 0.5);
+        if let Some(new_tier) = smaller_sql_tier(conf.tier_name, tier, halve_memory)
+            && let Some(s) =
+                ctx.savings_vs(cr.monthly_cost, ctx.reprice(|a| set_path(a, "settings.0.tier", Value::from(new_tier.as_str()))))
+        {
+            let memory = match mem {
+                Some(m) => format!(", memory mean {:.1}%, 95th percentile {:.1}%", m.mean * 100.0, m.p95 * 100.0),
+                None => String::new(),
+            };
+            let mut rec = ctx.rec(
+                "sql-rightsize",
+                if s > 100.0 { Severity::Medium } else { Severity::Low },
+                format!("Downsize {} to {new_tier}", conf.tier_name),
+                format!(
+                    "Use over {:.0} days: CPU mean {:.1}%, 95th percentile {:.1}%{memory} (suggested below a CPU mean of 20% and 95th percentile of 35%; memory halved too below a 95th percentile of 50%). Half the vCPUs would still leave headroom{}. Changing the tier restarts the instance.",
+                    c.days,
+                    c.mean * 100.0,
+                    c.p95 * 100.0,
+                    if halve_memory { " (and half the memory, which is little used)" } else { "; the memory is kept" }
+                ),
+                Some(s),
+            );
+            rec.change =
+                Some(CodeChange { attribute: "settings.0.tier".into(), from: conf.tier_name.to_string(), to: new_tier, unset: false });
+            out.push(rec);
+        }
     }
 
     if running {
@@ -1630,6 +1755,36 @@ fn firestore_rules(ctx: &Ctx, cr: &CostedResource) -> Vec<Recommendation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn larger_sql_tiers() {
+        let larger = |name: &str, cpu, memory| larger_sql_tier(name, &parse_sql_tier(name).unwrap(), cpu, memory);
+        assert_eq!(larger("db-custom-2-8192", true, false).as_deref(), Some("db-custom-4-8192"));
+        assert_eq!(larger("db-custom-2-8192", false, true).as_deref(), Some("db-custom-4-16384"), "16 GiB needs more vCPUs");
+        assert_eq!(larger("db-custom-4-8192", false, true).as_deref(), Some("db-custom-4-16384"));
+        assert_eq!(larger("db-custom-1-3840", true, true).as_deref(), Some("db-custom-2-7680"));
+        assert_eq!(larger("db-n1-standard-2", false, true).as_deref(), Some("db-n1-highmem-2"));
+        assert_eq!(larger("db-n1-standard-2", true, false).as_deref(), Some("db-n1-standard-4"));
+        assert_eq!(larger("db-perf-optimized-N-8", true, false).as_deref(), Some("db-perf-optimized-N-16"));
+        assert_eq!(larger("db-custom-96-393216", true, false), None);
+        assert_eq!(larger("db-f1-micro", true, false), None);
+        assert_eq!(larger("db-custom-2-8192", false, false), None);
+    }
+
+    #[test]
+    fn smaller_sql_tiers() {
+        let smaller = |name: &str, halve_memory| smaller_sql_tier(name, &parse_sql_tier(name).unwrap(), halve_memory);
+        assert_eq!(smaller("db-custom-4-16384", true).as_deref(), Some("db-custom-2-8192"));
+        assert_eq!(smaller("db-custom-4-16384", false).as_deref(), None, "8 GiB per vCPU is above the limit");
+        assert_eq!(smaller("db-custom-4-8192", false).as_deref(), Some("db-custom-2-8192"));
+        assert_eq!(smaller("db-custom-2-3840", true).as_deref(), Some("db-custom-1-2048"));
+        assert_eq!(smaller("db-custom-6-12288", true), None, "3 vCPUs is not a valid custom shape");
+        assert_eq!(smaller("db-n1-standard-4", true).as_deref(), Some("db-n1-standard-2"));
+        assert_eq!(smaller("db-n1-standard-4", false), None);
+        assert_eq!(smaller("db-perf-optimized-N-8", true).as_deref(), Some("db-perf-optimized-N-4"));
+        assert_eq!(smaller("db-g1-small", true), None);
+        assert_eq!(smaller("db-custom-1-3840", true), None);
+    }
 
     #[test]
     fn sql_tiers() {

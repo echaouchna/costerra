@@ -786,9 +786,103 @@ pub(crate) mod rules {
             .reduce(f64::min)
     }
 
+    /// Regions a bucket location serves without inter-region data transfer:
+    /// its region(s), or its continent for a multi-region.
+    fn serves(loc: &BucketLocation, region: &str) -> bool {
+        let pair = |a: &str, b: &str| region == a || region == b;
+        match loc {
+            BucketLocation::Region(r) => r == region,
+            BucketLocation::CustomDual(v) => v.iter().any(|r| r == region),
+            BucketLocation::Dual(d) => match d.as_str() {
+                "eur4" => pair("europe-north1", "europe-west4"),
+                "eur5" => pair("europe-west1", "europe-west2"),
+                "eur7" => pair("europe-west2", "europe-west3"),
+                "eur8" => pair("europe-west3", "europe-west6"),
+                "nam4" => pair("us-central1", "us-east1"),
+                "asia1" => pair("asia-northeast1", "asia-northeast2"),
+                _ => loc.continent() == region_continent(region),
+            },
+            BucketLocation::Multi(_) => loc.continent() == region_continent(region),
+        }
+    }
+
+    /// The region a resource runs in, when it has one (`europe-west1-b` → `europe-west1`).
+    fn region_of(r: &crate::tf::evaluate::ResourceInstance) -> Option<String> {
+        let s = |k: &str| r.attrs.get(k).and_then(|v| v.as_str()).filter(|v| !v.starts_with(crate::REF_PREFIX));
+        let raw = s("zone").or(s("region")).or(s("location")).map(str::to_string).or_else(|| r.provider.region.clone())?;
+        let region = crate::pricing::query::normalize_region(&raw.to_lowercase());
+        // Real regions only (not `global`, nor multi-regions such as `EU`).
+        (region.contains('-') && region.chars().any(|c| c.is_ascii_digit())).then_some(region)
+    }
+
+    /// Whether a configuration value mentions the bucket (`my-bucket`, `gs://my-bucket/…`).
+    fn mentions(v: &Value, bucket: &str) -> bool {
+        match v {
+            Value::String(s) => s == bucket || s.strip_prefix("gs://").is_some_and(|p| p == bucket || p.starts_with(&format!("{bucket}/"))),
+            Value::List(l) => l.iter().any(|x| mentions(x, bucket)),
+            Value::Map(m) => m.values().any(|x| mentions(x, bucket)),
+            _ => false,
+        }
+    }
+
+    /// Resources of the project that use the bucket from a region its location
+    /// does not serve: their reads are billed as inter-region data transfer.
+    fn cross_region(ctx: &Ctx, loc: &BucketLocation) -> Option<Recommendation> {
+        let bucket = ctx.str("name").filter(|n| !n.is_empty() && !n.starts_with(crate::REF_PREFIX))?;
+        let mut readers: Vec<(String, String)> = ctx
+            .siblings
+            .iter()
+            .filter(|r| !r.rtype.starts_with("google_storage_") && r.address != ctx.r.address && mentions(&r.attrs, bucket))
+            .filter_map(|r| Some((r.address.clone(), region_of(r)?)))
+            .filter(|(_, region)| !serves(loc, region))
+            .collect();
+        if readers.is_empty() {
+            return None;
+        }
+        readers.sort();
+        let mut regions: Vec<&str> = readers.iter().map(|(_, r)| r.as_str()).collect();
+        regions.dedup();
+        let shown: Vec<String> = readers.iter().take(3).map(|(a, r)| format!("{a} ({r})")).collect();
+        let more = if readers.len() > 3 { format!(" and {} more", readers.len() - 3) } else { String::new() };
+        // With the bytes the bucket sent, an upper bound of the transfer cost.
+        let sent = ctx.observed_value("sent_gb");
+        let estimate = match (loc, sent) {
+            (BucketLocation::Region(src), Some(gb)) if gb > 0.0 => {
+                crate::resources::network::inter_region_egress_component(ctx, src, regions[0], Some(gb)).monthly_cost
+            }
+            _ => None,
+        };
+        let observed = match (sent, estimate) {
+            (Some(gb), Some(cost)) => format!(
+                " The bucket sent {} GiB a month over the last 30 days: if those reads come from {}, they cost up to ~{}/mo.",
+                crate::hcl::value::fmt_number(gb.round()),
+                regions[0],
+                ctx.money(cost)
+            ),
+            (Some(gb), None) => {
+                format!(" The bucket sent {} GiB a month over the last 30 days.", crate::hcl::value::fmt_number(gb.round()))
+            }
+            _ => String::new(),
+        };
+        Some(ctx.rec(
+            "gcs-cross-region",
+            if estimate.is_some_and(|c| c > 50.0) { Severity::Medium } else { Severity::Low },
+            format!("Used from another region than the bucket ({})", loc.label()),
+            format!(
+                "{}{more} use{} this bucket from {}, outside {}: every read is billed as inter-region data transfer (and is slower).{observed} Keep the bucket and its readers in the same region: a regional bucket next to them, or the readers in the bucket's region.",
+                shown.join(", "),
+                if readers.len() == 1 { "s" } else { "" },
+                regions.join(", "),
+                loc.label()
+            ),
+            estimate.filter(|c| *c > 1.0),
+        ))
+    }
+
     pub fn bucket(ctx: &Ctx, cr: &CostedResource) -> Vec<Recommendation> {
         let mut out = vec![];
         let b = BucketConfig::from_ctx(ctx);
+        out.extend(cross_region(ctx, &b.loc));
         let storage_gb = ctx.usage_num("storage_gb");
         let lifecycle = lifecycle_rules(ctx);
         let cur_price = storage_unit_price(ctx, &b.loc, b.class);

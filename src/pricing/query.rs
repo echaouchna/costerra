@@ -191,7 +191,7 @@ impl Pricer {
         if let Some(r) = self.memo.read().get(&key) {
             return r.clone();
         }
-        let res = self.find_uncached(&q).map(|s| self.price_of(s));
+        let res = self.find_uncached(&q);
         if res.is_none() {
             tracing::debug!("no SKU for {key}");
         }
@@ -208,7 +208,7 @@ impl Pricer {
             tiers[0].0 = 0.0;
         }
         self.used.lock().insert(s.id.clone());
-        Arc::new(Price { sku_id: s.id.clone(), description: s.description.clone(), unit: s.unit.clone(), tiers })
+        Arc::new(Price { sku_id: s.id.clone(), description: s.description.clone(), unit: s.unit.to_string(), tiers })
     }
 
     /// All SKUs matching a query (for diagnostics / `pricing search`).
@@ -216,6 +216,12 @@ impl Pricer {
         let Some(cat) = &self.catalog else { return vec![] };
         let Some(re) = self.regex(q.desc) else { return vec![] };
         let ex = q.exclude.and_then(|e| self.regex(e));
+        // One service and a region: only that region is decoded.
+        if !q.service.is_empty() && !q.region.is_empty() {
+            return cat
+                .with_region(q.service, q.region, |skus| skus.filter(|s| self.matches(s, &q, &re, ex.as_deref())).cloned().collect())
+                .unwrap_or_default();
+        }
         let services: Vec<&super::catalog::ServiceIndex> = if q.service.is_empty() {
             cat.service_names().filter_map(|n| cat.service(n)).collect()
         } else {
@@ -238,44 +244,46 @@ impl Pricer {
     }
 
     fn matches(&self, s: &Sku, q: &Query, re: &Regex, ex: Option<&Regex>) -> bool {
-        q.family.is_none_or(|f| s.family == f)
-            && q.group.is_none_or(|g| s.group == g)
-            && q.usage_type.is_none_or(|u| s.usage_type == u)
-            && q.unit.is_none_or(|u| s.unit == u)
+        q.family.is_none_or(|f| &*s.family == f)
+            && q.group.is_none_or(|g| &*s.group == g)
+            && q.usage_type.is_none_or(|u| &*s.usage_type == u)
+            && q.unit.is_none_or(|u| &*s.unit == u)
             && re.is_match(&s.description)
             && ex.is_none_or(|e| !e.is_match(&s.description))
     }
 
-    fn find_uncached(&self, q: &Query) -> Option<&Sku> {
+    /// The price of the best SKU matching a query, in its region or global
+    /// (only the SKUs of those regions are decoded).
+    fn find_uncached(&self, q: &Query) -> Option<Arc<Price>> {
         let cat = self.catalog.as_ref()?;
-        let svc = cat.service(q.service)?;
         let re = self.regex(q.desc)?;
         let ex = q.exclude.and_then(|e| self.regex(e));
         let region = normalize_region(q.region);
         for r in [region.as_str(), "global"] {
-            let Some(idx) = svc.by_region.get(r) else { continue };
-            let mut best: Option<&Sku> = None;
-            for i in idx {
-                let s = &svc.skus[*i as usize];
-                if !self.matches(s, q, &re, ex.as_deref()) {
-                    continue;
-                }
-                // A $0 global SKU reached through the fallback is almost always an
-                // unrelated match (attribution / trial SKUs), not the wanted price.
-                if r == "global" && region != "global" && s.tiers.iter().all(|t| t.1 == 0.0) {
-                    continue;
-                }
-                best = Some(match best {
-                    None => s,
-                    Some(b) => {
-                        let ks = (s.regions.len(), s.description.len(), &s.id);
-                        let kb = (b.regions.len(), b.description.len(), &b.id);
-                        if ks < kb { s } else { b }
+            let found = cat.with_region(q.service, r, |skus| {
+                let mut best: Option<&Sku> = None;
+                for s in skus {
+                    if !self.matches(s, q, &re, ex.as_deref()) {
+                        continue;
                     }
-                });
-            }
-            if best.is_some() {
-                return best;
+                    // A $0 global SKU reached through the fallback is almost always an
+                    // unrelated match (attribution / trial SKUs), not the wanted price.
+                    if r == "global" && region != "global" && s.tiers.iter().all(|t| t.1 == 0.0) {
+                        continue;
+                    }
+                    best = Some(match best {
+                        None => s,
+                        Some(b) => {
+                            let ks = (s.regions.len(), s.description.len(), &s.id);
+                            let kb = (b.regions.len(), b.description.len(), &b.id);
+                            if ks < kb { s } else { b }
+                        }
+                    });
+                }
+                best.map(|s| self.price_of(s))
+            })?;
+            if found.is_some() {
+                return found;
             }
         }
         None

@@ -4,7 +4,7 @@
 
 use super::machine::COMPUTE;
 use super::{Ctx, Env, Spec, UsageParam, usage};
-use crate::cost::{Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
+use crate::cost::{CodeChange, Component, CostedResource, HOURS_PER_MONTH, Recommendation, Severity};
 use crate::hcl::value::{Value, fmt_number};
 use crate::pricing::query::Query;
 
@@ -102,6 +102,22 @@ fn parse_cpu(s: &str) -> Option<f64> {
         Some(m) => m.parse::<f64>().ok().map(|v| v / 1000.0),
         None => s.parse().ok(),
     }
+}
+
+/// A memory quantity multiplied by `factor`, in the same style
+/// (`"1Gi"` × 0.5 = `"512Mi"`, `"512Mi"` × 2 = `"1Gi"`, `"1G"` × 0.5 = `"500M"`).
+fn scale_mem(s: &str, factor: f64) -> Option<String> {
+    let s = s.trim();
+    let (num, unit) = s.split_at(s.find(|c: char| !(c.is_ascii_digit() || c == '.'))?);
+    let v = num.parse::<f64>().ok()? * factor;
+    let step = if unit.ends_with('i') { 1024.0 } else { 1000.0 };
+    let (v, unit) = match unit {
+        "Gi" | "G" if v < 1.0 => (v * step, if step == 1024.0 { "Mi" } else { "M" }),
+        "Mi" | "M" if v >= step && (v / step).fract() == 0.0 => (v / step, if step == 1024.0 { "Gi" } else { "G" }),
+        "Gi" | "G" | "Mi" | "M" => (v, unit),
+        _ => return None,
+    };
+    (v.fract() == 0.0).then(|| format!("{}{unit}", fmt(v)))
 }
 
 /// Kubernetes-style memory quantity (`"512Mi"`, `"2Gi"`, `"256M"`) in GiB.
@@ -517,6 +533,150 @@ fn run_service(ctx: &Ctx) -> Vec<Component> {
     run_components(ctx, &ctx.region(), &shape, product, &t)
 }
 
+/// vCPU counts a Cloud Run instance can have (1 and more).
+const RUN_CPUS: [f64; 5] = [1.0, 2.0, 4.0, 6.0, 8.0];
+
+/// Memory (GiB) a Cloud Run instance with this many vCPUs can have.
+fn run_memory_range(vcpu: f64, function: bool) -> (f64, f64) {
+    let min = if vcpu >= 6.0 {
+        4.0
+    } else if vcpu >= 4.0 {
+        2.0
+    } else if function {
+        0.25
+    } else {
+        0.5
+    };
+    (min, (vcpu * 4.0).min(32.0))
+}
+
+/// CPU and memory limits from observed use (share of the limits): smaller
+/// when they are little used, larger when they are saturated.
+fn run_limits(ctx: &Ctx, shape: &RunShape, product: Product, current: f64, cost: &dyn Fn(&RunShape) -> Option<f64>) -> Vec<Recommendation> {
+    let mut out = vec![];
+    // One container (sidecars share the metrics), no GPU.
+    let (cpu_path, mem_path) = match ctx.r.rtype.as_str() {
+        "google_cloud_run_v2_service" if ctx.blocks("template.0.containers").len() == 1 => {
+            ("template.0.containers.0.resources.0.limits.cpu", "template.0.containers.0.resources.0.limits.memory")
+        }
+        "google_cloud_run_service" if ctx.blocks("template.0.spec.0.containers").len() == 1 => {
+            ("template.0.spec.0.containers.0.resources.0.limits.cpu", "template.0.spec.0.containers.0.resources.0.limits.memory")
+        }
+        "google_cloudfunctions2_function" => ("service_config.0.available_cpu", "service_config.0.available_memory"),
+        _ => return out,
+    };
+    if shape.gpu.is_some() {
+        return out;
+    }
+    let function = product == Product::Function;
+    let prefix = product.rule_prefix();
+    let what = if function { "function" } else { "service" };
+    let change = |path: &str, from: &str, to: String| CodeChange { attribute: path.to_string(), from: from.to_string(), to, unset: false };
+    // The memory change must fit the vCPUs after the CPU change.
+    let mut vcpu_after = shape.vcpu;
+
+    if let Some(c) = ctx.observed_cpu().filter(|c| c.days >= 7.0) {
+        let lower = RUN_CPUS.iter().rev().find(|v| **v < shape.vcpu).copied();
+        let higher = RUN_CPUS.iter().find(|v| **v > shape.vcpu).copied();
+        let target = if c.p95 >= 0.8 {
+            higher
+        } else if c.p95 < 0.3 && c.max < 0.5 {
+            lower
+        } else {
+            None
+        };
+        let fits = |v: f64| {
+            let (min, max) = run_memory_range(v, function);
+            (min..=max).contains(&shape.mem_gib)
+        };
+        if let Some(v) = target.filter(|v| fits(*v)) {
+            let alt = RunShape { vcpu: v, concurrency: shape.concurrency, ..shape.clone() };
+            let up = v > shape.vcpu;
+            // Limits change the CPU / memory time: no difference means that time
+            // is not priced (usage-based without usage), not that it is free.
+            let saved = cost(&alt).map(|n| current - n).filter(|s| s.abs() >= 0.01);
+            if up || saved.is_some_and(|s| s > 1.0) {
+                let from = ctx.str(cpu_path);
+                let to = match from {
+                    Some(f) if f.ends_with('m') => format!("{}m", fmt(v * 1000.0)),
+                    _ => fmt(v),
+                };
+                let mut rec = ctx.rec(
+                    &format!("{prefix}-rightsize-cpu"),
+                    if up { Severity::Medium } else { Severity::Low },
+                    format!(
+                        "{} the CPU of this {what} from {} to {} vCPU",
+                        if up { "Increase" } else { "Reduce" },
+                        fmt(shape.vcpu),
+                        fmt(v)
+                    ),
+                    format!(
+                        "CPU use over {:.0} days (share of the limit, hourly 95th percentile): typical {:.0}%, peak {:.0}% (larger from a typical 80%, smaller below a typical 30% and a peak of 50%). {}",
+                        c.days,
+                        c.p95 * 100.0,
+                        c.max * 100.0,
+                        if up {
+                            "It is saturated: requests queue and latency grows. More vCPUs cost more but serve the load."
+                        } else {
+                            "Fewer vCPUs would still leave headroom."
+                        }
+                    ),
+                    saved,
+                );
+                rec.change = from.map(|f| change(cpu_path, f, to));
+                out.push(rec);
+                vcpu_after = v;
+            }
+        }
+    }
+
+    if let Some(m) = ctx.observed_memory().filter(|m| m.days >= 7.0)
+        && let Some(from) = ctx.str(mem_path)
+    {
+        let (min, max) = run_memory_range(vcpu_after, function);
+        let factor = if m.max >= 0.9 || m.p95 >= 0.8 {
+            Some(2.0)
+        } else if m.max < 0.4 {
+            Some(0.5)
+        } else {
+            None
+        };
+        if let Some(f) = factor.filter(|f| (min..=max).contains(&(shape.mem_gib * f)))
+            && let Some(to) = scale_mem(from, f)
+        {
+            let up = f > 1.0;
+            let alt = RunShape { mem_gib: shape.mem_gib * f, ..shape.clone() };
+            let saved = cost(&alt).map(|n| current - n).filter(|s| s.abs() >= 0.01);
+            if up || saved.is_some_and(|s| s > 1.0) {
+                let mut rec = ctx.rec(
+                    &format!("{prefix}-rightsize-memory"),
+                    if up { Severity::High } else { Severity::Low },
+                    format!("{} the memory of this {what} from {from} to {to}", if up { "Increase" } else { "Reduce" }),
+                    format!(
+                        "Memory use over {:.0} days (share of the limit, hourly 95th percentile): typical {:.0}%, peak {:.0}% (larger from a peak of 90% or a typical 80%, smaller below a peak of 40%). {}",
+                        m.days,
+                        m.p95 * 100.0,
+                        m.max * 100.0,
+                        if up {
+                            "Instances close to the limit are restarted when they run out of memory."
+                        } else {
+                            "Even the peak would fit in half the memory."
+                        }
+                    ),
+                    saved,
+                );
+                rec.change = Some(change(mem_path, from, to));
+                out.push(rec);
+            }
+        }
+    }
+    out
+}
+
+/// Fewer observed requests than this (about one every 4 minutes) do not
+/// justify warm instances.
+const QUIET_REQUESTS_PER_MONTH: f64 = 10_000.0;
+
 fn run_rules(ctx: &Ctx, _cr: &CostedResource) -> Vec<Recommendation> {
     let mut out = vec![];
     let Some((shape, product)) = shape_of(ctx) else { return out };
@@ -527,7 +687,34 @@ fn run_rules(ctx: &Ctx, _cr: &CostedResource) -> Vec<Recommendation> {
     let prefix = product.rule_prefix();
     let nonprod = ctx.env == Env::NonProd;
 
-    if shape.min_instances > 0.0 && nonprod {
+    // Warm instances for a service that observed almost no traffic.
+    let observed_requests = ctx.observed_keys.iter().any(|k| k == "monthly_requests").then(|| ctx.usage_num("monthly_requests")).flatten();
+    let quiet = observed_requests.filter(|r| *r < QUIET_REQUESTS_PER_MONTH);
+    if shape.min_instances > 0.0
+        && let Some(requests) = quiet
+    {
+        let alt = RunShape { min_instances: 0.0, ..shape.clone() };
+        if let Some(s) = ctx.savings_vs(current, cost(&alt)) {
+            let path = ["template.0.scaling.0.min_instance_count", "scaling.0.min_instance_count", "service_config.0.min_instance_count"]
+                .into_iter()
+                .find(|p| ctx.num(p).is_some_and(|n| n > 0.0));
+            let mut rec = ctx.rec(
+                &format!("{prefix}-min-instances-unused"),
+                Severity::Low,
+                format!("Scale this {} to zero: it gets almost no traffic", if product == Product::Service { "service" } else { "function" }),
+                format!(
+                    "~{} requests a month were observed (suggested below 10,000), but {} min instance(s) are kept warm all month (~{}/mo). Set the min instances to 0 unless the first request after idle must not pay a cold start.",
+                    fmt(requests.round()),
+                    fmt(shape.min_instances),
+                    ctx.money(s)
+                ),
+                Some(s),
+            );
+            rec.change =
+                path.map(|p| CodeChange { attribute: p.to_string(), from: fmt(shape.min_instances), to: "0".into(), unset: false });
+            out.push(rec);
+        }
+    } else if shape.min_instances > 0.0 && nonprod {
         let alt = RunShape { min_instances: 0.0, ..shape.clone() };
         if let Some(s) = ctx.savings_vs(current, cost(&alt)) {
             let attr = match ctx.r.rtype.as_str() {
@@ -548,6 +735,8 @@ fn run_rules(ctx: &Ctx, _cr: &CostedResource) -> Vec<Recommendation> {
             ));
         }
     }
+
+    out.extend(run_limits(ctx, &shape, product, current, &cost));
 
     if product == Product::Service && shape.billing == Billing::Instance && shape.gpu.is_none() {
         let alt = RunShape { billing: Billing::Request, ..shape.clone() };

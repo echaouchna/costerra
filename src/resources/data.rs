@@ -1325,7 +1325,7 @@ mod tests {
 
 pub(crate) mod rules {
     use super::*;
-    use crate::cost::{CostedResource, Recommendation, Severity};
+    use crate::cost::{CodeChange, CostedResource, Recommendation, Severity};
     use crate::resources::{Env, set_path};
 
     fn storage_cost(cr: &CostedResource) -> f64 {
@@ -1345,26 +1345,74 @@ pub(crate) mod rules {
             let alt = knows_physical.then(|| physical_storage_cost(ctx)).flatten();
             let target = if ctx.r.rtype == "google_bigquery_dataset" { "this dataset" } else { "the dataset" };
             match alt.and_then(|a| ctx.savings_vs(current, Some(a))) {
-                Some(s) => out.push(ctx.rec(
-                    "bq-physical-storage",
-                    Severity::Info,
-                    "Switch to physical (compressed) storage billing",
-                    format!(
-                        "With the provided sizes, physical storage billing would cost ~{} instead of ~{} per month for {target}. Set storage_billing_model = \"PHYSICAL\" on google_bigquery_dataset. Physical billing also charges time travel and fail-safe bytes; lower max_time_travel_hours (e.g. 48) to limit them. The billing model can only be changed once every 14 days.",
-                        ctx.money(current - s),
-                        ctx.money(current)
-                    ),
-                    Some(s),
-                )),
-                None if !knows_physical => out.push(ctx.rec(
-                    "bq-physical-storage",
-                    Severity::Info,
-                    "Evaluate physical (compressed) storage billing",
-                    "Physical storage costs about 2x more per GiB than logical storage but is billed on compressed bytes. It is cheaper when the compression ratio (INFORMATION_SCHEMA.TABLE_STORAGE: logical / physical bytes, including time travel) exceeds ~2x, which is common. Set usage 'physical_storage_gb' or 'compression_ratio' to quantify, then set storage_billing_model = \"PHYSICAL\".",
-                    None,
-                )),
+                Some(s) => {
+                    let mut rec = ctx.rec(
+                        "bq-physical-storage",
+                        Severity::Low,
+                        "Switch to physical (compressed) storage billing",
+                        format!(
+                            "With {} sizes, physical storage billing would cost ~{} instead of ~{} per month for {target}. Set storage_billing_model = \"PHYSICAL\" on google_bigquery_dataset. Physical billing also charges time travel and fail-safe bytes; lower max_time_travel_hours (e.g. 48) to limit them. The billing model can only be changed once every 14 days.",
+                            sizes_basis(ctx),
+                            ctx.money(current - s),
+                            ctx.money(current)
+                        ),
+                        Some(s),
+                    );
+                    if ctx.r.rtype == "google_bigquery_dataset" {
+                        rec.change = Some(CodeChange {
+                            attribute: "storage_billing_model".into(),
+                            from: "LOGICAL".into(),
+                            to: "PHYSICAL".into(),
+                            unset: ctx.get("storage_billing_model").is_none(),
+                        });
+                    }
+                    out.push(rec);
+                }
+                None if !knows_physical => {
+                    // Only logical bytes: the compression decides, give the break-even ratio.
+                    let ratio = break_even_ratio(ctx);
+                    let detail = match (ratio, logical_gb) {
+                        (Some(r), Some(gb)) => format!(
+                            "Only the logical size of {target} is known ({} GiB, ~{}/mo with logical billing). Physical billing costs {r:.1}x more per GiB here but is billed on compressed bytes: it is cheaper when the data compresses better than {r:.1}x, which is common (time travel and fail-safe bytes are added to physical storage). To compare both exactly, grant BigQuery Metadata Viewer on the dataset (or BigQuery Metadata Viewer and Job User on the project), or set usage 'compression_ratio' or 'physical_storage_gb'.",
+                            fmt(gb.round()),
+                            ctx.money(current)
+                        ),
+                        _ => "Physical storage costs about 2x more per GiB than logical storage but is billed on compressed bytes. It is cheaper when the compression ratio (INFORMATION_SCHEMA.TABLE_STORAGE: logical / physical bytes, including time travel) exceeds ~2x, which is common. Set usage 'physical_storage_gb' or 'compression_ratio' to quantify, then set storage_billing_model = \"PHYSICAL\".".to_string(),
+                    };
+                    out.push(ctx.rec(
+                        "bq-physical-storage",
+                        Severity::Info,
+                        "Evaluate physical (compressed) storage billing",
+                        detail,
+                        None,
+                    ));
+                }
                 None => {}
             }
+        }
+
+        // Physical billing of data that compresses poorly (or has a lot of time travel bytes).
+        if physical
+            && ctx.r.rtype == "google_bigquery_dataset"
+            && logical_gb.is_some()
+            && ctx.usage_num("physical_storage_gb").is_some()
+            && let Some(s) = ctx.savings_vs(storage_cost(cr), logical_storage_cost(ctx))
+        {
+            let mut rec = ctx.rec(
+                "bq-logical-storage",
+                Severity::Low,
+                "Switch to logical (uncompressed) storage billing",
+                format!(
+                    "With {} sizes, logical storage billing would cost ~{} instead of ~{} per month for this dataset: the data does not compress enough to make up for the higher physical rate and the time travel and fail-safe bytes. Set storage_billing_model = \"LOGICAL\". The billing model can only be changed once every 14 days.",
+                    sizes_basis(ctx),
+                    ctx.money(storage_cost(cr) - s),
+                    ctx.money(storage_cost(cr))
+                ),
+                Some(s),
+            );
+            rec.change =
+                Some(CodeChange { attribute: "storage_billing_model".into(), from: "PHYSICAL".into(), to: "LOGICAL".into(), unset: false });
+            out.push(rec);
         }
 
         if ctx.r.rtype == "google_bigquery_dataset"
@@ -1403,6 +1451,40 @@ pub(crate) mod rules {
             }
         }
         out
+    }
+
+    /// "the observed" or "the provided" (usage file) storage sizes.
+    fn sizes_basis(ctx: &Ctx) -> &'static str {
+        if ctx.observed_keys.iter().any(|k| k == "physical_storage_gb" || k == "storage_gb") { "the observed" } else { "the provided" }
+    }
+
+    /// Compression ratio above which physical billing is cheaper for the
+    /// logical sizes of this dataset/table (time travel and fail-safe aside).
+    fn break_even_ratio(ctx: &Ctx) -> Option<f64> {
+        let loc = if ctx.r.rtype == "google_bigquery_dataset" {
+            bq_location(ctx)
+        } else {
+            table_dataset(ctx).map(bq_location_of).unwrap_or_else(|| "us".into())
+        };
+        let regions = bq_regions(&loc);
+        let price = |pat: &'static str, group: &'static str| {
+            ctx.price(bq_query(ctx, &regions, |r| Query::new(BQ, r, pat).group(group).ondemand())).map(|p| p.unit_price())
+        };
+        let (active, long_term) = (ctx.usage_num("storage_gb").unwrap_or(0.0), ctx.usage_num("long_term_storage_gb").unwrap_or(0.0));
+        let logical = active * price("^Active Logical Storage", "ActiveStorage")?
+            + long_term * price("^Long Term Logical Storage", "LongTermStorage")?;
+        let physical = active * price("^Active Physical Storage", "PhysicalStorage")?
+            + long_term * price("^Long-Term Physical Storage", "PhysicalStorage")?;
+        (logical > 0.0).then(|| physical / logical)
+    }
+
+    /// Monthly storage cost of this dataset with logical billing.
+    fn logical_storage_cost(ctx: &Ctx) -> Option<f64> {
+        let comps = bq_storage(ctx, &bq_regions(&bq_location(ctx)), false, 168.0);
+        if comps.iter().all(|c| c.monthly_cost.is_none()) {
+            return None;
+        }
+        Some(comps.iter().filter_map(|c| c.monthly_cost).sum())
     }
 
     /// Monthly storage cost of this dataset/table with physical billing.

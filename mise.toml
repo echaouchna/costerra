@@ -3,6 +3,8 @@ rust = { version = "1.98", components = "clippy,rustfmt" }
 just = "latest"
 jq = "latest"
 hyperfine = "latest"
+# Sampling CPU profiler (`just profile`), opens the Firefox Profiler.
+"github:mstange/samply" = "latest"
 # Only needed to generate plan JSON fixtures (`just plan-fixture`).
 terraform = "1"
 terragrunt = "latest"

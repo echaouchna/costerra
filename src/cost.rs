@@ -159,6 +159,26 @@ pub struct Recommendation {
     /// The data the recommendation is based on.
     #[serde(default)]
     pub basis: Basis,
+    /// The attribute change that applies it, when it is a single value of
+    /// the code (used by `--rightsize` to edit the code).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<CodeChange>,
+    /// The resource in the Google Cloud console, to check the metrics a
+    /// data-based recommendation relies on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console_url: Option<String>,
+}
+
+/// A new value for one attribute of a resource.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodeChange {
+    pub attribute: String,
+    pub from: String,
+    pub to: String,
+    /// The attribute is not set in the code (`from` is its default): the
+    /// change adds it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unset: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -379,6 +379,7 @@ pre .c { color: #7d776b; font-style: italic; }
 pre .p { color: var(--red); user-select: none; }
 pre .r { color: #f08a74; }
 pre .a { color: #f2c46d; font-weight: 600; }
+pre .g { color: #9ad48f; }
 
 /* ───────────── Coverage ───────────── */
 .ticker { margin-top: 0; background: var(--ink); color: var(--paper); overflow: hidden; border-block: 1px solid var(--ink); }
@@ -408,9 +409,10 @@ pre .a { color: #f2c46d; font-weight: 600; }
 .link-u:hover { color: var(--red); }
 .steps { list-style: none; padding: 0; margin: 0; border-top: 1.5px solid var(--ink); }
 .steps li { display: flex; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+.steps li > div { min-width: 0; }
 .step-n { flex: none; width: 48px; font: italic 400 2rem/1 var(--serif); color: var(--red); }
 .steps b { display: block; font: 500 1.25rem var(--serif); margin-bottom: 6px; }
-.steps code { display: inline-block; margin-bottom: 6px; background: var(--ink); color: var(--paper); padding: .2em .55em; }
+.steps code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; margin-bottom: 6px; background: var(--ink); color: var(--paper); padding: .2em .55em; }
 .steps small { display: block; color: var(--ink-2); font-size: .88rem; }
 .steps small code { background: rgba(22, 20, 15, .06); color: var(--ink); padding: .05em .3em; margin: 0; }
 

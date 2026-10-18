@@ -143,7 +143,7 @@ struct Cache {
 }
 
 fn cache_path(dir: &Path) -> PathBuf {
-    dir.join("insights.json")
+    dir.join(crate::pricing::sync::identity_file("insights"))
 }
 
 fn load_cache(dir: &Path) -> Cache {
@@ -504,6 +504,8 @@ pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>,
                             detail: ins.detail.clone().unwrap_or_default(),
                             monthly_savings: ins.monthly_savings,
                             basis: Basis::Observed,
+                            change: None,
+                            console_url: None,
                         });
                     }
                     matched = true;
@@ -535,6 +537,8 @@ pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>,
                 detail: ins.detail.clone().unwrap_or_default(),
                 monthly_savings: ins.monthly_savings,
                 basis: Basis::Observed,
+                change: None,
+                console_url: None,
             });
             if ins.kind.contains("commitment")
                 && let Some(l) = &ins.location
@@ -631,6 +635,8 @@ mod tests {
             detail: String::new(),
             monthly_savings: Some(10.0),
             basis: Basis::Code,
+            change: None,
+            console_url: None,
         }
     }
 

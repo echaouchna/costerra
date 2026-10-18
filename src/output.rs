@@ -18,6 +18,9 @@ pub struct Style {
     /// Collapse identical instances of a counted resource (`app[0]`…`app[3]`)
     /// into one `app[*] ×4` line.
     pub group: bool,
+    /// `--details`: price notes, example usage per resource, recommendation
+    /// sources and notes about data sources.
+    pub details: bool,
 }
 
 impl Style {
@@ -427,7 +430,7 @@ fn component_line(out: &mut String, cur: &str, c: &Component, last: bool, st: &S
         cost_cell(st, cur, &x.cost, l.cost),
         public_cell(st, cur, l, &x.cost, c.list_monthly_cost, x.list_price.as_deref())
     );
-    if let Some(n) = &c.note {
+    if let Some(n) = c.note.as_ref().filter(|_| st.details) {
         let cont = if last { "   " } else { "│  " };
         for line in wrap(n, l.total().saturating_sub(8)) {
             let _ = writeln!(out, " {}   {}", st.paint(cont).dim().s(), st.paint(line).dim().italic().s());
@@ -452,7 +455,7 @@ fn resource_block(out: &mut String, cur: &str, r: &CostedResource, st: &Style, l
             );
         }
     }
-    if let Some(e) = &r.usage_examples {
+    if let Some(e) = r.usage_examples.as_ref().filter(|_| st.details || r.usage_profile.is_some()) {
         let label = match &r.usage_profile {
             Some(p) => format!("priced with the {p} usage profile · examples:"),
             None => "≈ with example usage:".to_string(),
@@ -767,20 +770,21 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
             );
         }
         _ => {
-            let _ = writeln!(
-                out,
-                " {} public list prices {}",
-                st.paint("Pricing    ").dim().s(),
-                st.paint("(use --billing-account or `billing_account:` in costerra.yml for your contract prices)").dim().s()
-            );
+            let hint = if st.details {
+                format!(" {}", st.paint("(use --billing-account or `billing_account:` in costerra.yml for your contract prices)").dim().s())
+            } else {
+                String::new()
+            };
+            let _ = writeln!(out, " {} public list prices{hint}", st.paint("Pricing    ").dim().s());
         }
     }
     if let Some(o) = &report.observed {
         let _ = writeln!(
             out,
-            " {} observed for {} resources over the last {} days ({})",
+            " {} observed for {} resource{} over the last {} days ({})",
             st.paint("Usage      ").dim().s(),
             st.paint(o.resources.to_string()).cyan().s(),
+            if o.resources == 1 { "" } else { "s" },
             o.window_days,
             o.sources.join(", ")
         );
@@ -851,7 +855,14 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
                 st.paint("— potential savings").bold().s(),
                 st.paint(format!("{}/month", money(cur, report.potential_savings))).bold().green().s()
             );
-            h = format!("{h} {}", st.paint(SAVINGS_NOTE).dim().s());
+            // On its own line when the header would not fit.
+            let plain = format!(
+                "💡 Recommendations ({}) — potential savings {}/month {SAVINGS_NOTE}",
+                recs.len(),
+                money(cur, report.potential_savings)
+            );
+            let sep = if width_of(&plain) + 1 > width.max(term_width().min(110)) { "\n " } else { " " };
+            h = format!("{h}{sep}{}", st.paint(SAVINGS_NOTE).dim().s());
         }
         let _ = writeln!(out, "{h}\n");
         let mut sorted = recs.clone();
@@ -868,11 +879,7 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
                 Severity::Low => st.paint(label).blue().bold().s(),
                 Severity::Info => st.paint(label).dim().s(),
             };
-            let savings = r
-                .monthly_savings
-                .map(|s| format!("  {}", st.paint(format!("saves ~{}/mo", money(cur, s))).green().bold().s()))
-                .unwrap_or_default();
-            let _ = writeln!(out, " {sev} {}{}{savings}", source_tag(st, &r.source), st.paint(r.title.as_str()).bold().s());
+            rec_title(&mut out, st, &sev, r, cur, width, indent);
             let addr = if multi { format!("{project}: {}", r.address) } else { r.address.clone() };
             for line in wrap_address(&addr, width.saturating_sub(indent.len())) {
                 let _ = writeln!(out, "{indent}{}", st.paint(line).cyan().s());
@@ -896,17 +903,7 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
         let indent = "          ";
         for r in report.external_recommendations.iter().take(15) {
             let label = pad_right(&format!("[{}]", sev_label(r.severity)), 8);
-            let savings = r
-                .monthly_savings
-                .map(|s| format!("  {}", st.paint(format!("saves ~{}/mo", money(cur, s))).green().bold().s()))
-                .unwrap_or_default();
-            let _ = writeln!(
-                out,
-                " {} {}{}{savings}",
-                st.paint(label).dim().s(),
-                source_tag(st, &r.source),
-                st.paint(r.title.as_str()).bold().s()
-            );
+            rec_title(&mut out, st, &st.paint(label).dim().s(), r, cur, width, indent);
             if !r.address.is_empty() {
                 let _ = writeln!(out, "{indent}{}", st.paint(r.address.as_str()).cyan().s());
             }
@@ -924,10 +921,55 @@ fn summary_with(report: &Report, st: &Style, width: usize, cols: Option<(usize, 
             );
         }
     }
-    for n in &report.insight_notes {
-        let _ = writeln!(out, "\n {}", st.paint(format!("ℹ {n}")).dim().s());
+    if st.details {
+        for n in &report.insight_notes {
+            let _ = writeln!(out, "\n {}", st.paint(format!("ℹ {n}")).dim().s());
+        }
     }
     out
+}
+
+/// `saves ~$X/mo`, or `costs ~$X/mo more` for a change that costs more
+/// (upsizing a saturated resource), and whether it costs more.
+fn savings_text(cur: &str, s: f64, approx: &str) -> (String, bool) {
+    if s < 0.0 {
+        (format!("costs {approx}{}/mo more", money(cur, -s)), true)
+    } else {
+        (format!("saves {approx}{}/mo", money(cur, s)), false)
+    }
+}
+
+fn paint_savings(st: &Style, cur: &str, s: f64, approx: &str) -> String {
+    match savings_text(cur, s, approx) {
+        (t, true) => st.paint(t).yellow().bold().s(),
+        (t, false) => st.paint(t).green().bold().s(),
+    }
+}
+
+/// ` [SEV]    source Title  saves ~$X/mo` on one line when it fits; otherwise
+/// the title wraps under itself and the savings get their own line.
+fn rec_title(out: &mut String, st: &Style, sev: &str, r: &Recommendation, cur: &str, width: usize, indent: &str) {
+    let source = if r.source == "gcp" { "Google" } else { "costerra" };
+    let savings = r.monthly_savings.map(|s| savings_text(cur, s, "~").0);
+    let head = 1 + 8 + 1 + source.len() + 1;
+    let fits = head + width_of(&r.title) + savings.as_ref().map_or(0, |s| 2 + width_of(s)) <= width;
+    let painted = r.monthly_savings.map(|s| paint_savings(st, cur, s, "~"));
+    if fits {
+        let savings = painted.map(|s| format!("  {s}")).unwrap_or_default();
+        let _ = writeln!(out, " {sev} {}{}{savings}", source_tag(st, &r.source), st.paint(r.title.as_str()).bold().s());
+        return;
+    }
+    let lines = wrap(&r.title, width.saturating_sub(head).max(20));
+    for (i, line) in lines.iter().enumerate() {
+        if i == 0 {
+            let _ = writeln!(out, " {sev} {}{}", source_tag(st, &r.source), st.paint(line.as_str()).bold().s());
+        } else {
+            let _ = writeln!(out, "{}{}", " ".repeat(head), st.paint(line.as_str()).bold().s());
+        }
+    }
+    if let Some(s) = painted {
+        let _ = writeln!(out, "{indent}{s}");
+    }
 }
 
 fn source_tag(st: &Style, source: &str) -> String {
@@ -953,6 +995,9 @@ pub fn source_description(r: &Recommendation) -> (String, Option<String>) {
 }
 
 fn source_lines(out: &mut String, st: &Style, r: &Recommendation, indent: &str, width: usize) {
+    if !st.details {
+        return;
+    }
     let (text, details) = source_description(r);
     for (i, line) in wrap(&text, width.saturating_sub(indent.len() + 8)).iter().enumerate() {
         let label = if i == 0 { "Source: " } else { "        " };
@@ -988,6 +1033,11 @@ fn wrap(s: &str, width: usize) -> Vec<String> {
 
 fn md_escape(s: &str) -> String {
     s.replace('|', "\\|")
+}
+
+/// A savings cell: the amount, or `+$X (costs more)` for upsizing.
+fn md_savings(cur: &str, s: f64) -> String {
+    if s < 0.0 { format!("+{} (costs more)", money(cur, -s)) } else { money(cur, s) }
 }
 
 pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
@@ -1140,7 +1190,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
                 md_escape(&r.detail),
                 md_escape(&src),
                 inspect.map(|c| format!("<br>`{}`", md_escape(&c))).unwrap_or_default(),
-                r.monthly_savings.map(|s| money(cur, s)).unwrap_or_else(|| "–".into())
+                r.monthly_savings.map(|s| md_savings(cur, s)).unwrap_or_else(|| "–".into())
             );
         }
     }
@@ -1162,7 +1212,7 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>) -> String {
                 md_escape(&r.address),
                 md_escape(&src),
                 inspect.map(|c| format!("<br>`{}`", md_escape(&c))).unwrap_or_default(),
-                r.monthly_savings.map(|s| money(cur, s)).unwrap_or_else(|| "–".into())
+                r.monthly_savings.map(|s| md_savings(cur, s)).unwrap_or_else(|| "–".into())
             );
         }
         let _ = writeln!(out, "\n</details>");
@@ -1291,4 +1341,178 @@ fn group_of(addr: &str) -> String {
         Some(i) if a.ends_with(']') && !a[i..].contains('.') => a[..i].to_string(),
         _ => a.to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Rightsizing (`--rightsize`)
+// ---------------------------------------------------------------------------
+
+/// A path relative to the current directory when it is below it.
+pub fn display_path(p: &std::path::Path) -> String {
+    let canon = |x: &std::path::Path| x.canonicalize().unwrap_or_else(|_| x.to_path_buf());
+    match std::env::current_dir().map(|c| canon(&c)) {
+        Ok(cwd) => canon(p).strip_prefix(&cwd).map(|r| r.display().to_string()).unwrap_or_else(|_| p.display().to_string()),
+        Err(_) => p.display().to_string(),
+    }
+}
+
+/// A project as named in the table (`terraform (dev)` rather than `. (dev)`).
+fn project_label(report: &Report, name: &str) -> String {
+    report.projects.iter().find(|p| p.name == name).map(project_title).unwrap_or_else(|| name.to_string())
+}
+
+pub fn rightsizing(plan: &crate::rightsize::Plan, report: &Report, st: &Style, notes: &[String]) -> String {
+    let cur = report.currency.as_str();
+    let mut out = String::new();
+    let n = plan.suggestions.len();
+    let _ = writeln!(out, "\n{}", st.paint(format!("📐 Rightsizing from observed usage ({n})")).bold().s());
+    if n == 0 {
+        let _ = writeln!(out, "\n {}", st.paint("No change needed: the observed resources are neither oversized nor saturated.").dim().s());
+        // With --details the notes are already under the table.
+        for note in notes.iter().filter(|_| !st.details) {
+            let _ = writeln!(out, " {}", st.paint(format!("ℹ {note}")).dim().s());
+        }
+        return out;
+    }
+    let width = term_width().min(110);
+    let indent = "    ";
+    let pad = "            ";
+    let label = |t: &str| st.paint(format!("{indent}{t:<8}")).dim().s();
+    for s in &plan.suggestions {
+        let _ = writeln!(out, "\n {}", st.paint(format!("{}: {}", project_label(report, &s.project), s.address)).cyan().bold().s());
+        let _ = writeln!(
+            out,
+            "{indent}{}  {} → {}",
+            st.paint(crate::rightsize::display_attribute(&s.change.attribute)).bold().s(),
+            st.paint(s.change.from.as_str()).red().s(),
+            st.paint(s.change.to.as_str()).green().s()
+        );
+        for (i, line) in wrap(&s.detail, width.saturating_sub(pad.len())).iter().enumerate() {
+            let _ = writeln!(out, "{}{line}", if i == 0 { label("Why") } else { pad.to_string() });
+        }
+        match s.locations.as_slice() {
+            [] => {}
+            [l] => {
+                let entry = l.entry.as_ref().map(|e| format!("  (the \"{e}\" entry)")).unwrap_or_default();
+                let _ = writeln!(out, "{}{}{}", label("Where"), display_path(&l.file) + &format!(":{}", l.line), st.paint(entry).dim().s());
+                if l.insert {
+                    let _ = writeln!(out, "{pad}{}", st.paint(format!("  {}", l.text)).dim().s());
+                    let _ = writeln!(out, "{pad}{}", st.paint(format!("+   {}", crate::rightsize::inserted(&s.change))).green().s());
+                } else if let Some(new) = l.changed(&s.change) {
+                    let _ = writeln!(out, "{pad}{}", st.paint(format!("- {}", l.text)).red().s());
+                    let _ = writeln!(out, "{pad}{}", st.paint(format!("+ {new}")).green().s());
+                } else {
+                    let _ = writeln!(out, "{pad}{}", st.paint(format!("  {}", l.text)).dim().s());
+                }
+            }
+            many => {
+                for (i, l) in many.iter().enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "{}{}  {}",
+                        if i == 0 { label("Where") } else { pad.to_string() },
+                        display_path(&l.file) + &format!(":{}", l.line),
+                        st.paint(l.text.as_str()).dim().s()
+                    );
+                }
+            }
+        }
+        if let Some(note) = &s.note {
+            for (i, line) in wrap(note, width.saturating_sub(pad.len())).iter().enumerate() {
+                let _ = writeln!(out, "{}{}", if i == 0 { label("Note") } else { pad.to_string() }, st.paint(line.as_str()).yellow().s());
+            }
+        }
+        if let Some(url) = &s.console_url {
+            // Not wrapped: a link to open.
+            let _ = writeln!(out, "{}{}", label("Check"), st.paint(url.as_str()).blue().s());
+        }
+        if s.cost_known {
+            let _ = writeln!(
+                out,
+                "{}{} → {}  {}",
+                label("Cost"),
+                money(cur, s.monthly_cost),
+                st.paint(format!("{}/month", money(cur, s.monthly_cost_after))).bold().s(),
+                paint_savings(st, cur, s.savings(), "")
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "{}{}",
+                label("Cost"),
+                st.paint("change not estimated (usage-based: set usage estimates with `costerra usage init`)").dim().s()
+            );
+        }
+    }
+    out.push('\n');
+    let saved = plan.monthly_cost - plan.monthly_cost_after;
+    let unknown = plan.suggestions.iter().filter(|s| !s.cost_known).count();
+    let delta = if saved.abs() < 0.005 {
+        String::new()
+    } else if saved < 0.0 {
+        format!("(+{}/month)", money(cur, -saved))
+    } else {
+        format!("(−{}/month)", money(cur, saved))
+    };
+    let delta = match unknown {
+        0 => delta,
+        n => format!("{delta}{}{n} change{} not estimated", if delta.is_empty() { "" } else { " · " }, if n == 1 { "" } else { "s" }),
+    };
+    let plain =
+        format!(" Total after rightsizing {} → {}/month  {delta}", money(cur, plan.monthly_cost), money(cur, plan.monthly_cost_after));
+    let _ = writeln!(
+        out,
+        " {} {} → {}{}{}",
+        st.paint("Total after rightsizing").bold().s(),
+        money(cur, plan.monthly_cost),
+        if saved < 0.0 {
+            st.paint(format!("{}/month", money(cur, plan.monthly_cost_after))).bold().yellow().s()
+        } else {
+            st.paint(format!("{}/month", money(cur, plan.monthly_cost_after))).bold().green().s()
+        },
+        if width_of(&plain) > width { "\n " } else { "  " },
+        if saved < 0.0 { st.paint(delta).yellow().s() } else { st.paint(delta).green().s() }
+    );
+    let _ = writeln!(
+        out,
+        " {}",
+        st.paint("costerra never edits the code: check the metrics in the console, then change the lines above.").dim().s()
+    );
+    out
+}
+
+pub fn rightsizing_markdown(plan: &crate::rightsize::Plan, report: &Report) -> String {
+    let cur = report.currency.as_str();
+    let mut out = String::new();
+    let _ = writeln!(out, "\n#### 📐 Rightsizing from observed usage ({})\n", plan.suggestions.len());
+    if plan.suggestions.is_empty() {
+        out.push_str("No change needed: the observed resources are neither oversized nor saturated.\n");
+        return out;
+    }
+    out.push_str("| Resource | Change | Why | Where | Check | Monthly cost |\n|---|---|---|---|---|---:|\n");
+    for s in &plan.suggestions {
+        let at = match s.locations.as_slice() {
+            [] => "–".to_string(),
+            ls => ls.iter().map(|l| format!("`{}:{}`", display_path(&l.file), l.line)).collect::<Vec<_>>().join("<br>"),
+        };
+        let why = match &s.note {
+            Some(n) => format!("{}<br><sub>⚠ {}</sub>", md_escape(&s.detail), md_escape(n)),
+            None => md_escape(&s.detail),
+        };
+        let check = s.console_url.as_ref().map(|u| format!("[console]({u})")).unwrap_or_else(|| "–".into());
+        let _ = writeln!(
+            out,
+            "| {}: `{}` | `{}` {} → {} | {why} | {at} | {check} | {} → **{}** |",
+            md_escape(&project_label(report, &s.project)),
+            md_escape(&s.address),
+            crate::rightsize::display_attribute(&s.change.attribute),
+            s.change.from,
+            s.change.to,
+            money(cur, s.monthly_cost),
+            if s.cost_known { money(cur, s.monthly_cost_after) } else { "not estimated".into() }
+        );
+    }
+    let _ =
+        writeln!(out, "\nTotal after rightsizing: {} → **{}/month**", money(cur, plan.monthly_cost), money(cur, plan.monthly_cost_after));
+    out
 }

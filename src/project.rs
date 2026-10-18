@@ -45,6 +45,9 @@ pub struct LoadOptions {
     pub cache_dir: PathBuf,
     /// Do not evaluate one project per `environments/*.tfvars` file.
     pub no_env_discovery: bool,
+    /// Read the outputs of `terraform_remote_state` (gcs backend) from the
+    /// state buckets.
+    pub remote_state: bool,
 }
 
 const SKIP_DIRS: &[&str] = &[".terraform", ".terragrunt-cache", ".git", "node_modules", ".terragrunt-stack"];
@@ -227,6 +230,7 @@ pub fn load(path: &Path, opts: &LoadOptions) -> Result<Vec<Project>> {
                 manifest_root,
                 root_dir: d.to_path_buf(),
                 workspace: opts.workspace.clone().unwrap_or_else(|| "default".into()),
+                remote_state: opts.remote_state && !opts.offline,
             };
             let parsed = parse_module_dir(d);
             let mut out = EvalOutput::default();
@@ -260,6 +264,7 @@ pub struct TgRunner {
     engine: TgEngine,
     resolver: ModuleResolver,
     workspace: String,
+    remote_state: bool,
     results: Mutex<HashMap<PathBuf, Arc<UnitResult>>>,
     /// Local module directories used as Terragrunt sources.
     pub module_dirs: Mutex<HashSet<PathBuf>>,
@@ -271,6 +276,7 @@ impl TgRunner {
             engine: TgEngine::new(opts.allow_run_cmd),
             resolver: ModuleResolver::new(opts.cache_dir.join("modules"), opts.offline),
             workspace: opts.workspace.clone().unwrap_or_else(|| "default".into()),
+            remote_state: opts.remote_state && !opts.offline,
             results: Mutex::new(HashMap::new()),
             module_dirs: Mutex::new(HashSet::new()),
         }
@@ -351,6 +357,7 @@ impl TgRunner {
             manifest_root: None,
             root_dir: find_repo_root(dir).unwrap_or_else(|| dir.to_path_buf()),
             workspace: self.workspace.clone(),
+            remote_state: self.remote_state,
         };
         let mut out = EvalOutput::default();
         let outputs = evaluate_module(&env, &parsed, &cfg.inputs, Providers::new(), "", "", 0, &mut out);

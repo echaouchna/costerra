@@ -23,7 +23,8 @@ pub fn rt() -> Result<&'static tokio::runtime::Runtime> {
     if let Some(rt) = RT.get() {
         return Ok(rt);
     }
-    let built = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    // Network calls only: two workers are enough, and each one costs memory.
+    let built = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     let _ = RT.set(built);
     RT.get().context("tokio runtime")
 }
@@ -40,6 +41,10 @@ pub fn load_eval_config(e: &EvalArgs) -> Result<Config> {
             _ => d.clone(),
         };
         catalog::set_cache_dir(d);
+    }
+    // The command line (set first) wins over the configuration.
+    if let Some(sa) = &c.impersonate_service_account {
+        costerra::pricing::sync::set_impersonation(sa);
     }
     Ok(c)
 }
@@ -79,6 +84,7 @@ pub fn load_opts(e: &EvalArgs, config: &Config) -> LoadOptions {
         exclude: excludes(e, config),
         cache_dir: catalog::default_cache_dir(),
         no_env_discovery: e.no_env_discovery,
+        remote_state: !e.no_remote_state && config.remote_state.unwrap_or(true),
     }
 }
 
@@ -146,11 +152,12 @@ pub fn lint_usage(usage: &UsageFile, projects: &[Project]) {
     }
     warnings.sort();
     warnings.dedup();
-    for w in warnings.iter().take(20) {
+    let max = ui::max_notices();
+    for w in warnings.iter().take(max) {
         notice("warning", w);
     }
-    if warnings.len() > 20 {
-        notice("warning", format!("… {} more usage file warnings", warnings.len() - 20));
+    if warnings.len() > max {
+        notice("warning", format!("… {} more usage file warnings (--details shows them)", warnings.len() - max));
     }
 }
 
@@ -167,13 +174,13 @@ pub fn load_projects(e: &EvalArgs, path: &Path, config: &Config) -> Result<Vec<P
     for p in &projects {
         for w in &p.warnings {
             let important = w.starts_with("parse error") || w.contains("cannot load") || w.contains("could not be evaluated");
-            if important && shown.insert(w.clone()) && shown.len() <= 15 {
+            if important && shown.insert(w.clone()) && shown.len() <= ui::max_notices() {
                 notice("warning", format!("{}: {w}", p.name));
             }
         }
     }
-    if shown.len() > 15 {
-        notice("warning", format!("… {} more (use --show-all to see all warnings)", shown.len() - 15));
+    if shown.len() > ui::max_notices() {
+        notice("warning", format!("… {} more (--details shows them)", shown.len() - ui::max_notices()));
     }
     Ok(projects)
 }
@@ -185,6 +192,7 @@ pub fn price(
     pricer: &Pricer,
     usage: &UsageFile,
     observed: Option<&Observed>,
+    recommendations: bool,
 ) -> Report {
     let t = Instant::now();
     let list = pricer.list_view();
@@ -195,10 +203,13 @@ pub fn price(
         examples: true,
         usage,
         config,
-        recommendations: !a.no_recommendations,
+        recommendations,
         observed,
     };
     let mut report = engine.report(projects);
+    if !a.show_free_tier() {
+        report.free_tiers.clear();
+    }
     report.usage_profile = a.usage_profile.map(|p| p.name().to_string());
     if let Some(o) = observed {
         let names: std::collections::HashSet<&str> = projects.iter().map(|p| p.name.as_str()).collect();
@@ -217,7 +228,8 @@ pub fn price(
 }
 
 pub fn style(a: &RunArgs, color: bool) -> Style {
-    Style { color: color && a.out.is_none(), show_all: a.show_all, show_warnings: a.show_all, group: !a.no_group }
+    let all = a.show_all || a.details;
+    Style { color: color && a.out.is_none(), show_all: all, show_warnings: all, group: !a.no_group, details: a.details }
 }
 
 pub fn emit(a: &RunArgs, text: String) -> Result<()> {
@@ -238,6 +250,13 @@ pub fn check_total_policy(a: &RunArgs, config: &Config, report: &Report) -> i32 
             2
         }
         _ => 0,
+    }
+}
+
+/// Say when impersonation failed: the Google data was then not read.
+pub fn report_auth_problems() {
+    if let Some(e) = costerra::pricing::sync::impersonation_error() {
+        notice("warning", format!("{e} (observed usage, remote states and recommendations were not read)"));
     }
 }
 

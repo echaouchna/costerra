@@ -29,6 +29,13 @@ recommendations:
 # observed_usage: true
 # quota_project: my-project   # quota project for the Recommender and Monitoring APIs
 
+# terraform_remote_state (gcs backend) outputs read from the state buckets
+# (Storage Object Viewer), e.g. for project ids taken from another configuration.
+# remote_state: true
+# Run every Google API call as this service account (needs Service Account
+# Token Creator on it).
+# impersonate_service_account: costerra@my-project.iam.gserviceaccount.com
+
 policies:
   max_monthly_cost: 50000
   max_increase: 1000          # per diff, absolute

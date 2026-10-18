@@ -6,6 +6,100 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
+### Added
+- `--rightsize`: rightsizing from observed usage. Each suggestion says why
+  (the observed metrics and the threshold they crossed), where the value is
+  set in the code (resource block, Terragrunt `inputs`, `.tfvars`, root
+  variable or `optional()` default, parent Terragrunt file; every candidate
+  line when several could set it), what to know before changing it (shared
+  value, module default, downloaded module), a link to the resource in the
+  Google Cloud console to check the metrics, and the monthly cost before and
+  after, with the total after rightsizing. costerra never edits the code. In
+  JSON (`rightsizing`) and Markdown too.
+- BigQuery dataset sizes in observed usage: logical, physical, time travel and
+  fail-safe bytes from `INFORMATION_SCHEMA.TABLE_STORAGE` (needs
+  `roles/bigquery.metadataViewer` and `roles/bigquery.jobUser`; skipped with a
+  note otherwise).
+- Cloud SQL CPU and memory utilization in observed usage, and
+  `sql-rightsize`: a tier with half the vCPUs (custom, legacy `db-n1-*`,
+  `db-perf-optimized-N-*`) when CPU use is low; the memory is halved only
+  when it is little used too. Shown by `--rightsize` (`settings.tier`).
+- `run-min-instances-unused` / `functions-min-instances-unused`: warm
+  instances of a service or function that observed fewer than 10,000 requests
+  a month. Shown by `--rightsize` (`min_instance_count = 0`). Cloud Run
+  instances running without requests count as 0 requests.
+- Cloud SQL instances whose name has a random suffix are matched by
+  elimination (the only unnamed instance of the code and the only unclaimed
+  instance in the project).
+- Upsizing: `compute-upsize` and `sql-upsize` suggest more capacity (twice
+  the vCPUs, more memory) for a VM or Cloud SQL instance whose metrics show
+  it is saturated. Shown as "costs $X/mo more" by `--rightsize`,
+  never counted in the potential savings.
+- Cloud Run and Cloud Functions CPU and memory use in observed usage, and
+  `run-rightsize-cpu` / `run-rightsize-memory` (`functions-…`): smaller or
+  larger limits within the shapes Cloud Run allows, shown by `--rightsize`.
+- BigQuery dataset sizes from the tables API (dataset-level BigQuery Metadata
+  Viewer) where `INFORMATION_SCHEMA` cannot be read, so the billing model can
+  still be compared exactly; with Cloud Monitoring (`stored_bytes`, logical
+  bytes) as the last resort, real storage costs and the break-even
+  compression ratio.
+- `terraform_remote_state` with the `gcs` backend is read from the state
+  bucket (Storage Object Viewer): project ids and other outputs of another
+  configuration are known, so observed usage and rightsizing work on code
+  that takes its project ids from a remote state. Outputs are kept in memory
+  only, sensitive outputs stay unknown. `--no-remote-state`,
+  `COSTERRA_NO_REMOTE_STATE`, `remote_state: false`.
+- `--impersonate-service-account` (`COSTERRA_IMPERSONATE_SERVICE_ACCOUNT`,
+  `impersonate_service_account:`): every OAuth call as a service account;
+  caches are kept per account, and a failed impersonation is reported.
+- CI templates: `COSTERRA_IMPERSONATE_SERVICE_ACCOUNT`.
+- CI templates: `COSTERRA_RECOMMENDATIONS` (default `true`) puts the
+  recommendations in the merge / pull request comment; set it to `false` to
+  leave them out.
+- `bq-logical-storage`: switch a dataset billed on physical storage back to
+  logical storage when its data does not compress enough. Both billing model
+  rules come with the code change, so `--rightsize` shows them (adding
+  `storage_billing_model` when it is not set).
+- `gcs-cross-region`: a bucket used from a region its location does not
+  serve (read by a Cloud Run service, VM, function… of the code in another
+  region) is billed for inter-region data transfer; with observed usage
+  (`storage/network/sent_bytes_count`), an upper bound of that cost.
+- Homebrew: `brew install echaouchna/tap/costerra`; the release workflow
+  publishes the formula to the tap (repository variable `HOMEBREW_TAP`,
+  secret `HOMEBREW_TAP_TOKEN`).
+- `just profile` (CPU profile with samply, from `mise.toml`) and `just mem`
+  (peak memory), with a `profiling` Cargo profile.
+- `--details`: everything at once (recommendations, free tiers, zero-cost
+  resources, warnings, price notes, example usage per resource,
+  recommendation sources, notes about unavailable data sources).
+- `--free-tier`: show the free tiers of the services used.
+- Recommendations carry the attribute change that applies them (`change` in
+  JSON) when it is a single value of the code.
+
+### Changed
+- Recommendations are opt-in: `--recommendations` (or
+  `COSTERRA_RECOMMENDATIONS=1`, or `--details`). Without it they are neither
+  computed nor shown, and Google Cloud Recommender is not queried.
+  `--no-recommendations` is still accepted.
+- Free tiers are shown only with `--free-tier`, `--include-free-tier` or
+  `--details` (also in JSON and Markdown).
+- Quieter default output: price notes, per-resource example usage, the
+  contract price hint, recommendation sources, notes about data sources and
+  the contract price refresh summary are shown with `--details` (or `-v`).
+  At most 5 warnings of a kind are printed (all with `--details`).
+- `bq-physical-storage` is a low (not informational) recommendation when its
+  savings are computed from sizes, so it counts in the potential savings.
+- Long recommendation titles wrap on narrow terminals.
+- Much faster and lighter: references such as `local.x` or `var.y[k]` no
+  longer copy the containers they go through (a 108,000-resource repository
+  went from 19 s to 0.7 s); prices are decoded only for the regions in use,
+  once per service and region (Compute Engine keeps its 4.8 MB decompressed
+  list instead of ~20 MiB of decoded SKUs); repeated SKU strings are shared.
+  A typical run takes about half the time and two thirds of the memory of
+  0.2.0.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added
@@ -95,6 +189,7 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/echaouchna/costerra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/echaouchna/costerra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/echaouchna/costerra/releases/tag/v0.1.0

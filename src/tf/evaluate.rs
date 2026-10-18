@@ -48,6 +48,8 @@ pub struct EvalEnv<'a> {
     pub manifest_root: Option<PathBuf>,
     pub root_dir: PathBuf,
     pub workspace: String,
+    /// Read `terraform_remote_state` outputs from the state buckets.
+    pub remote_state: bool,
 }
 
 const MAX_DEPTH: usize = 24;
@@ -345,7 +347,11 @@ pub fn evaluate_module(
             }
             Node::Resource(i) => {
                 let rb = &parsed.resources[i];
-                let val = eval_resource(env, rb, &root, dir, &providers, addr_prefix, out);
+                let mut val = eval_resource(env, rb, &root, dir, &providers, addr_prefix, out);
+                if env.remote_state && rb.mode == Mode::Data && rb.rtype == "terraform_remote_state" {
+                    let address = format!("{addr_prefix}data.terraform_remote_state.{}", rb.name);
+                    val = super::remote_state::resolve(val, &mut out.warnings, &address);
+                }
                 if rb.mode == Mode::Data {
                     map_mut(map_mut(&mut root, "data"), &rb.rtype).insert(rb.name.clone(), val);
                 } else {

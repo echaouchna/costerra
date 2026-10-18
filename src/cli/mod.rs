@@ -25,6 +25,9 @@ pub fn main() {
     if let Some(d) = &cli.cache_dir {
         costerra::pricing::catalog::set_cache_dir(d.clone());
     }
+    if let Some(sa) = &cli.impersonate_service_account {
+        costerra::pricing::sync::set_impersonation(sa);
+    }
     let color = cli.color.enabled(cli.no_color, std::io::stdout().is_terminal());
     let stderr_color = cli.color.enabled(cli.no_color, std::io::stderr().is_terminal());
     ui::init(stderr_color, cli.verbose > 0);

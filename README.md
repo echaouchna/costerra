@@ -13,28 +13,33 @@
 Fast cost estimates and optimization insights for **Google Cloud** Terraform
 and Terragrunt code, written in Rust.
 
-* **Fast.** No `terraform init` and no credentials are needed to evaluate
-  code. HCL is evaluated statically, in parallel. A repository with 15
-  projects and 350 resources is analysed in about 60 ms, and 5,000 resources
-  in about 100 ms.
+* **Fast and light.** No `terraform init` and no credentials are needed to
+  evaluate code. HCL is evaluated statically, in parallel, and only the prices
+  of the regions in use are decoded. A repository with 15 projects and 350
+  resources is analysed in about 25 ms; 885 projects and 108,000 resources
+  take under a second.
 * **Accurate.** Prices come from the official Cloud Billing Catalog API
   (85k SKUs, cached locally in 2 MiB). Sustained use discounts, licenses, GPUs,
   tiered rates, Spot pricing and regional differences are applied.
 * **Actionable.** More than 120 optimization rules, each with an estimated
   monthly saving: Spot for non-prod, machine family changes, committed use
   discounts, HA in non-prod, idle IPs and disks, lifecycle policies, cheaper
-  regions, and more.
+  regions, and more (`--recommendations`).
+* **Rightsizing from real usage.** With access to the metrics, `--rightsize`
+  says which resources are oversized or saturated and why, which line of the
+  code sets the value, the cost after the change, and links to the console to
+  check the metrics. It never edits the code.
 * **Made for CI.** Cost diffs against a git ref, Markdown comments for merge
   requests, JSON output, and policy thresholds that set the exit code.
 
 ```
+$ costerra breakdown live --recommendations
 Project: live/prod/app (terragrunt)
 
  Name                                                              Monthly Qty  Unit            Monthly Cost
 
  google_compute_instance.app[*] ×4                                                                  $1,012.47
  ├─ Instance usage (n2-standard-8, on-demand)                            2,920  hours                $999.27
- │     includes 20% sustained use discount
  └─ Boot disk (pd-balanced, 30 GiB)                                        120  GiB-months            $13.20
  …
 💡 Recommendations (6) — potential savings $336.06/month (best option per resource: alternatives are not added up)
@@ -51,6 +56,13 @@ Project: live/prod/app (terragrunt)
 
   ```sh
   cargo install costerra
+  ```
+
+* **With [Homebrew](https://brew.sh)** (macOS, Linux), from the
+  [echaouchna/tap](https://github.com/echaouchna/homebrew-tap) tap:
+
+  ```sh
+  brew install echaouchna/tap/costerra
   ```
 
 * **Release binaries** (Linux x86_64 / aarch64, macOS Intel / Apple silicon):
@@ -85,7 +97,23 @@ costerra breakdown path/to/infra
 
 # 3. Compare with the main branch
 costerra diff path/to/infra --base origin/main
+
+# 4. Optimize
+costerra breakdown path/to/infra --recommendations    # optimization advice
+costerra breakdown path/to/infra --rightsize          # from observed usage: why, where, cost after, console link
 ```
+
+The default output is the cost table and totals. Add what you need:
+
+| Flag | Shows |
+|---|---|
+| `--recommendations` (`COSTERRA_RECOMMENDATIONS=1`) | optimization recommendations and the potential savings |
+| `--free-tier` | the free tiers of the services used (`--include-free-tier` also deducts them) |
+| `--show-all` | zero-cost resources and per-resource warnings |
+| `--details` | all of the above, plus price notes (sustained use discounts…), example usage per resource, the source of each recommendation, every warning, and notes about data sources that could not be read |
+| `--rightsize` | [rightsizing in the code](#rightsizing-the-code---rightsize) |
+
+The same flags decide what the JSON and Markdown reports contain.
 
 If no pricing catalog exists, `breakdown` downloads one automatically.
 Prices, detected billing accounts and downloaded modules are cached in
@@ -109,9 +137,16 @@ When a Terraform root module keeps its variables in per-environment files
 environment, e.g. `30-network (dev)` and `30-network (prod)`. Disable this with
 `--no-env-discovery`.
 
-Values that are only known after `terraform apply`, such as
-`terraform_remote_state` outputs, data sources and computed attributes, are
-unknown to static evaluation. `for` expressions filtered by such values keep
+`terraform_remote_state` data sources with the `gcs` backend are read from
+their state bucket when your credentials allow it (Storage Object Viewer on
+the bucket), so that values such as project ids taken from another
+configuration are known. Only the outputs are kept, in memory, for the run;
+sensitive outputs stay unknown, and nothing is printed or cached. Turn it off
+with `--no-remote-state`, `COSTERRA_NO_REMOTE_STATE=1` or `remote_state: false`
+(and `--offline`).
+
+Values that are only known after `terraform apply`, such as other data
+sources and computed attributes, are unknown to static evaluation. `for` expressions filtered by such values keep
 their items (conservative for cost). A `count` / `for_each` that stays unknown
 is estimated as one instance named `["<unknown>"]`, with a warning. Use a plan
 JSON for exact results.
@@ -158,16 +193,26 @@ does not set (a usage file value always wins):
 | Resource | Observed in | Usage key |
 |---|---|---|
 | `google_compute_instance` | CPU utilization (Cloud Monitoring) | `monthly_hrs` (hours it ran), CPU mean and 95th percentile |
-| `google_storage_bucket` | `storage/total_bytes` | `storage_gb` |
-| `google_sql_database_instance` | `database/disk/bytes_used` | `storage_gb` |
-| `google_cloud_run_v2_service`, `google_cloud_run_service`, `google_cloudfunctions2_function` | `request_count` | `monthly_requests` |
+| `google_storage_bucket` | `storage/total_bytes`; `network/sent_bytes_count` (for cross-region reads) | `storage_gb` |
+| `google_sql_database_instance` | `database/disk/bytes_used`, `database/cpu/utilization`, `database/memory/utilization` | `storage_gb`, CPU and memory mean and 95th percentile |
+| `google_cloud_run_v2_service`, `google_cloud_run_service`, `google_cloudfunctions2_function` | `request_count` (and `container/instance_count`: instances running without requests count as 0 requests); `container/cpu/utilizations` and `container/memory/utilizations` (share of the limits, hourly 95th percentile of the busiest revision) | `monthly_requests`, CPU and memory use |
 | on-demand VMs | active Compute Engine commitments | share of vCPUs already committed |
+| `google_bigquery_dataset` | `INFORMATION_SCHEMA.TABLE_STORAGE` (current sizes) | `storage_gb`, `long_term_storage_gb`, `physical_storage_gb`, `long_term_physical_storage_gb`, `time_travel_storage_gb`, `fail_safe_storage_gb` |
+| `google_bigquery_dataset`, without access to `INFORMATION_SCHEMA` | the tables API (`tables.list` / `tables.get`, dataset-level permission): the same bytes, fail-safe excepted | as above |
+| `google_bigquery_dataset`, without access to either | `storage/stored_bytes` (Cloud Monitoring) | `storage_gb` (logical bytes) |
 
-Resources are matched by GCP project and `name`, so names computed at apply
-time are skipped. Values are scaled to a month over the time the resource has
+Resources are matched by GCP project and `name` (`dataset_id` for datasets),
+so names computed at apply time are skipped. A Cloud SQL instance whose name
+ends with a random suffix (`random_string`, `random_id`) is still matched when
+it is the only unnamed instance of the code in its project and exactly one
+instance of that project is not claimed by another resource of the code. BigQuery sizes are read with one
+metadata query per project and dataset location, billed as the 10 MB query
+minimum (a fraction of a cent). Values are scaled to a month over the time the resource has
 existed (at least 3 days of data). A `Usage` line under the table says how many
 resources were observed. Results are cached for 6 hours; the first run waits
-at most 3 seconds for them. Turn it off with `--no-observed`,
+at most 3 seconds for them. Sources that cannot be read are skipped: the run
+never fails because of them, and `--details` (or `--rightsize`) shows a note
+saying which role is missing. Turn it off with `--no-observed`,
 `COSTERRA_NO_OBSERVED=1` or `observed_usage: false`. See
 [Permissions](#permissions) for the roles.
 
@@ -248,13 +293,86 @@ For GitHub, [`ci/github-actions.yml`](ci/github-actions.yml) is the
 equivalent workflow: copy it to `.github/workflows/costerra.yml`. It runs the
 container image and creates or updates one pull request comment.
 
-Boolean environment variables (`COSTERRA_NO_REFRESH`, `COSTERRA_NO_INSIGHTS`,
-`COSTERRA_NO_OBSERVED`) accept `1`/`0`, `true`/`false`, `yes`/`no`.
+Both include the optimization recommendations in the comment
+(`COSTERRA_RECOMMENDATIONS: "true"`); set the CI/CD variable (GitLab) or
+repository variable (GitHub) `COSTERRA_RECOMMENDATIONS` to `false` to leave
+them out. Set `COSTERRA_IMPERSONATE_SERVICE_ACCOUNT` to run the Google API
+calls as a service account (for example the one that can read your state
+buckets and metrics).
+
+Boolean environment variables (`COSTERRA_RECOMMENDATIONS`, `COSTERRA_NO_REFRESH`,
+`COSTERRA_NO_INSIGHTS`, `COSTERRA_NO_OBSERVED`) accept `1`/`0`, `true`/`false`, `yes`/`no`.
 
 Colors: `--color auto|always|never` (also `NO_COLOR` and `CLICOLOR_FORCE`).
 Expensive items are highlighted: yellow above $100/month, red above $1,000/month.
 Missing prices are shown in red, and diffs show increases in red and decreases
 in green.
+
+## Rightsizing the code (`--rightsize`)
+
+With observed usage (see [Permissions](#permissions)), `--rightsize` lists
+the resources that are oversized (cheaper to run smaller) or saturated (short
+of CPU or memory), with:
+
+* **Why**: the observed metrics and the threshold they crossed;
+* **Where**: the line of the code that sets the value, with the suggested
+  change; all candidate lines when several could set it;
+* **Note**: what to know before changing it (a value shared with other
+  resources, a module default, a downloaded module…);
+* **Check**: a link to the resource in the Google Cloud console, to see the
+  metrics for yourself;
+* **Cost**: the monthly cost before and after the change.
+
+```
+📐 Rightsizing from observed usage (1)
+
+ powerbi-vm (dev): google_compute_instance.pbi_vm_per_bu[*] (4 instances)
+    machine_type  n2-standard-4 → n2-standard-2
+    Why     CPU use over 28 days: mean 8.0%, 95th percentile 22.3% (suggested below a mean of 20% and a 95th
+            percentile of 35%). Half the vCPUs would still leave headroom. Check memory use first (it needs the
+            Ops Agent to be measured).
+    Where   vm.tf:14
+            - machine_type = "n2-standard-4"
+            + machine_type = "n2-standard-2"
+    Check   https://console.cloud.google.com/compute/instancesDetail/zones/europe-west1-b/instances/powerbi-vm-affi?project=…&tab=monitoring
+    Cost    $118.45 → $85.11/month  saves $33.34/mo
+
+ Total after rightsizing $154.76 → $121.42/month  (−$33.34/month)
+ costerra never edits the code: check the metrics in the console, then change the lines above.
+```
+
+| Change | When |
+|---|---|
+| VM `machine_type` with half the vCPUs | CPU mean below 20% and 95th percentile below 35% over at least 7 days |
+| VM `machine_type` with twice the vCPUs (costs more) | CPU 95th percentile at 85% or more: the VM is short of CPU |
+| BigQuery `storage_billing_model = "PHYSICAL"` | the observed compressed bytes, time travel and fail-safe included, cost less than the logical bytes |
+| BigQuery `storage_billing_model = "LOGICAL"` | the data does not compress enough to pay for the higher physical rate |
+| Cloud SQL `settings.tier` with half the vCPUs (custom, legacy `db-n1-*`, `db-perf-optimized-N-*`) | CPU mean below 20% and 95th percentile below 35% over at least 7 days; the memory is halved too only when its 95th percentile is below 50% (custom tiers keep it otherwise, within 6.5 GiB per vCPU) |
+| A larger Cloud SQL `settings.tier` (costs more) | CPU 95th percentile at 85% or more (twice the vCPUs), memory 95th percentile at 90% or more (twice the memory, or `db-n1-highmem-*`) |
+| Cloud Run / Cloud Functions CPU (`limits.cpu`, `available_cpu`): the next smaller or larger size of 1, 2, 4, 6, 8 vCPUs | smaller: CPU 95th percentile below 30% and peak below 50%; larger: 95th percentile at 80% or more. The memory must stay within what that CPU allows |
+| Cloud Run / Cloud Functions memory (`limits.memory`, `available_memory`): half or twice | half: even the peak is below 40%; twice: peak at 90% or 95th percentile at 80% (instances that run out of memory are restarted) |
+| Cloud Run / Cloud Functions `min_instance_count = 0` | fewer than 10,000 requests a month were observed while min instances are kept warm |
+
+costerra finds the line that sets the value: a literal in the resource block,
+a Terragrunt `inputs` entry, a `.tfvars` file (the one of the environment for
+[per-environment projects](#inputs)), a variable or `optional()` default of
+the root module, or a parent Terragrunt file. An attribute that is not set
+goes into the resource block. Only a value assigned to a key about the
+attribute counts (not an entry of a per-environment map such as
+`{ dev = "2", prod = "4" }`). When the value is computed (for example
+`"${var.memory}Mi"`) or comes from a module input, no line is shown.
+
+Changes that cost more (more capacity for a saturated resource) are shown
+as "costs $X/mo more" and counted in the total after rightsizing; they are
+never part of the potential savings.
+
+costerra never edits the code: check the metrics in the console, then make
+the change (a smaller size can be tried in a non-production environment
+first). The BigQuery billing model can only be changed once every 14 days.
+
+`--rightsize` works with `--format json` (`rightsizing` key) and
+`--format markdown`. It needs observed usage, so it cannot be used with
+`--offline` or `--no-observed`.
 
 ## Usage-based recommendations (Google Cloud Recommender)
 
@@ -318,7 +436,25 @@ recommendation says what it is based on. From least to most accurate:
    * cheaper machine families are not proposed for VMs whose CPU is saturated
      (95th percentile above 85%);
    * commitment advice leaves out the vCPUs your active commitments already
-     cover, and is skipped for VMs that do not run all month.
+     cover, and is skipped for VMs that do not run all month;
+   * `sql-rightsize`: a Cloud SQL tier with half the vCPUs when CPU use is
+     low (memory kept unless it is little used too);
+   * `compute-upsize` / `sql-upsize`: more capacity for a VM or Cloud SQL
+     instance short of CPU or memory (it costs more);
+   * `run-rightsize-cpu` / `run-rightsize-memory` (and `functions-…`): Cloud
+     Run and Cloud Functions limits that are little used or saturated;
+   * `run-min-instances-unused` / `functions-min-instances-unused`: warm
+     instances of a service or function that gets almost no traffic;
+   * `gcs-cross-region`: a bucket used by resources of the code in a region its
+     location does not serve (a regional bucket read from another region, a
+     dual-region outside its pair, a multi-region from another continent):
+     reads are billed as inter-region data transfer. Found from the code; with
+     observed usage, the bytes the bucket sent give an upper bound of that cost;
+   * `bq-physical-storage` / `bq-logical-storage`: the cheaper BigQuery storage
+     billing model, from the logical, physical, time travel and fail-safe bytes
+     of each dataset (BigQuery Metadata Viewer and Job User on the project, or
+     Metadata Viewer on the datasets). With logical bytes only (Monitoring),
+     the break-even compression ratio is given instead.
 5. **Google Cloud Recommender**, with Recommender Viewer: Google's own
    analysis of the usage (memory included, through the Ops Agent), and
    commitment recommendations for the billing account with Billing Account
@@ -473,16 +609,33 @@ Typical setups:
   with `roles/billing.viewer` on the billing account, and
   `COSTERRA_BILLING_ACCOUNT` set.
 * **CI, most accurate:** the same service account, also with
-  `roles/monitoring.viewer`, `roles/compute.viewer` and
-  `roles/recommender.viewer` on the projects.
+  `roles/monitoring.viewer`, `roles/compute.viewer`,
+  `roles/recommender.viewer`, `roles/bigquery.metadataViewer` and
+  `roles/bigquery.jobUser` on the projects.
+
+**Service account impersonation.** `--impersonate-service-account <email>`
+(`COSTERRA_IMPERSONATE_SERVICE_ACCOUNT`, or `impersonate_service_account:` in
+`costerra.yml`) makes every OAuth call (contract prices, observed usage,
+recommendations, remote states) with that service account's token. Your
+credentials need Service Account Token Creator
+(`roles/iam.serviceAccountTokenCreator`) on it; an API key is used as is.
+Cached observed usage and recommendations are kept per impersonated account.
+
+**Remote states** (`terraform_remote_state`, `gcs` backend): Storage Object
+Viewer (`roles/storage.objectViewer`) on the state buckets. A state that
+cannot be read leaves its outputs unknown (a warning with `--details`).
 
 **Observed usage and recommendations** are optional: each one that is missing is
-skipped, and a note under the table says what to grant.
+skipped (costerra never fails because of it, and caches the refusal for
+6 hours), and a note says what to grant (shown with `--details` or
+`--rightsize`).
 
 | Data | API | Role (read-only) | On |
 |---|---|---|---|
-| [Observed usage](#observed-usage): CPU, uptime, storage, requests | Cloud Monitoring (`monitoring.googleapis.com`) | Monitoring Viewer (`roles/monitoring.viewer`) | the projects |
+| [Observed usage](#observed-usage): VM and Cloud SQL CPU, Cloud SQL memory, uptime, storage, requests, BigQuery stored bytes | Cloud Monitoring (`monitoring.googleapis.com`) | Monitoring Viewer (`roles/monitoring.viewer`) | the projects |
 | Active commitments | Compute Engine (`compute.googleapis.com`) | Compute Viewer (`roles/compute.viewer`) | the projects |
+| BigQuery dataset sizes (logical / physical storage) | BigQuery (`bigquery.googleapis.com`), `jobs.query` on `INFORMATION_SCHEMA.TABLE_STORAGE` | BigQuery Metadata Viewer (`roles/bigquery.metadataViewer`) and BigQuery Job User (`roles/bigquery.jobUser`), or the permissions `bigquery.tables.get`, `bigquery.tables.list` and `bigquery.jobs.create` | the projects of the datasets |
+| BigQuery dataset sizes, without project-level access (fallback) | BigQuery tables API (`tables.list`, `tables.get`; no query job) | BigQuery Metadata Viewer (`roles/bigquery.metadataViewer`) | each dataset |
 | [Google recommendations](#usage-based-recommendations-google-cloud-recommender) for resources | Recommender (`recommender.googleapis.com`) | Recommender Viewer (`roles/recommender.viewer`) | the projects |
 | Google commitment recommendations for the billing account | Recommender | Billing Account Viewer (`roles/billing.viewer`), as for contract prices | the billing account |
 
@@ -514,7 +667,7 @@ Default Credentials.
 Tools are pinned in `mise.toml` and commands live in the `justfile`:
 
 ```sh
-mise install              # Rust 1.98 (clippy, rustfmt), just, jq, hyperfine, terraform, terragrunt, osv-scanner, trivy
+mise install              # Rust 1.98 (clippy, rustfmt), just, jq, hyperfine, samply, terraform, terragrunt, osv-scanner, trivy
 just                      # list recipes
 just check                # rustfmt --check, clippy (-D warnings), tests: what CI runs
 just audit                # osv-scanner (dependencies) + trivy (vulnerabilities, secrets, misconfigurations)
@@ -523,7 +676,9 @@ just breakdown ../infra   # breakdown of any path (extra args are passed through
 just diff . origin/main   # cost diff against a git ref
 just sync-prices [BILLING_ACCOUNT]
 just sku '^N2 Instance Core' 'Compute Engine' europe-west1
-just bench                # hyperfine benchmark of a cached breakdown
+just bench                # hyperfine benchmark of a cached breakdown: time and peak memory
+just profile [PATH]       # CPU profile with samply (mise.toml), opened in the Firefox Profiler
+just mem [PATH]           # peak memory of a breakdown (profiling build, with symbols)
 just plan-fixture         # plan JSON fixture (needs GCP credentials)
 just docker-build         # container image; just docker-scan scans it with trivy
 just golden-catalog       # rebuild the golden test price list from the synced catalog

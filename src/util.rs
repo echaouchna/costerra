@@ -175,6 +175,7 @@ pub(crate) mod fake_http {
         pub path: String,
         pub query: Vec<(String, String)>,
         pub headers: Vec<(String, String)>,
+        pub body: String,
     }
 
     impl Request {
@@ -249,7 +250,13 @@ pub(crate) mod fake_http {
                         (decode(k), decode(v))
                     })
                     .collect();
-                let req = Request { path: path.to_string(), query, headers };
+                let len =
+                    headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("content-length")).and_then(|(_, v)| v.parse().ok()).unwrap_or(0);
+                let mut body = vec![0u8; len];
+                if std::io::Read::read_exact(&mut reader, &mut body).is_err() {
+                    continue;
+                }
+                let req = Request { path: path.to_string(), query, headers, body: String::from_utf8_lossy(&body).into_owned() };
                 let (status, body) = handler(&req);
                 log.lock().unwrap().push(req);
                 let _ = write!(

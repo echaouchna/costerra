@@ -156,11 +156,11 @@ pub fn inter_region_egress_component(ctx: &Ctx, src: &str, dst: &str, gb: Option
     let name = format!("Inter-region egress ({src} to {dst})");
     let skus =
         ctx.pricer.search(Query::new(COMPUTE, &src, "^Network Inter Region Data Transfer Out from").group("InterregionEgress").ondemand());
-    let has = |s: &Sku, r: &str| s.regions.iter().any(|x| x == r);
+    let has = |s: &Sku, r: &str| s.regions.iter().any(|x| &**x == r);
     let sku =
-        skus.iter().filter(|s| s.regions.first() == Some(&src) && has(s, &dst)).min_by_key(|s| s.regions.len()).or_else(|| {
-            skus.iter().filter(|s| has(s, &dst) && !(s.regions.len() == 2 && s.regions[0] == dst)).min_by_key(|s| s.regions.len())
-        });
+        skus.iter().filter(|s| s.regions.first().is_some_and(|f| **f == *src) && has(s, &dst)).min_by_key(|s| s.regions.len()).or_else(
+            || skus.iter().filter(|s| has(s, &dst) && !(s.regions.len() == 2 && *s.regions[0] == *dst)).min_by_key(|s| s.regions.len()),
+        );
     let Some(sku) = sku else {
         if ctx.pricer.catalog.is_some() {
             ctx.warn(format!("no price found for '{name}'"));

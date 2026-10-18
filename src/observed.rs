@@ -1,8 +1,11 @@
 //! Observed usage of the deployed resources, read from Google Cloud when the
 //! credentials allow it:
 //! * Cloud Monitoring metrics over the last 30 days (VM CPU and uptime, bucket
-//!   and Cloud SQL storage, Cloud Run requests),
-//! * active Compute Engine commitments.
+//!   and Cloud SQL storage, Cloud SQL CPU and memory, Cloud Run requests,
+//!   BigQuery stored bytes),
+//! * active Compute Engine commitments,
+//! * logical and physical bytes of BigQuery datasets
+//!   (`INFORMATION_SCHEMA.TABLE_STORAGE`, a metadata query).
 //!
 //! Every source is optional: what cannot be read (no OAuth credentials, API
 //! disabled, permission denied, deadline reached) is skipped and the
@@ -28,12 +31,15 @@ const MAX_PAGES: usize = 10;
 const CHUNK: usize = 50;
 const HOURS_PER_MONTH: f64 = 730.0;
 
-/// CPU utilization of a VM over the window (fractions, 0–1).
+/// CPU or memory utilization over the window (fractions, 0–1).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct CpuStats {
     pub mean: f64,
     /// 95th percentile of hourly means.
     pub p95: f64,
+    /// Highest hourly value.
+    #[serde(default)]
+    pub max: f64,
     /// Days covered by the data.
     pub days: f64,
 }
@@ -45,8 +51,14 @@ pub struct ObservedResource {
     /// `storage_gb`, `monthly_requests`). A usage file value wins.
     pub usage: BTreeMap<String, f64>,
     pub cpu: Option<CpuStats>,
+    /// Memory utilization (Cloud SQL).
+    #[serde(default)]
+    pub memory: Option<CpuStats>,
     /// Share (0–1) of the VM's vCPUs already covered by active commitments.
     pub committed_fraction: Option<f64>,
+    /// The resource in the Google Cloud console (its metrics).
+    #[serde(default)]
+    pub console: Option<String>,
 }
 
 /// Observed data for the analysed code, keyed by (project name, address).
@@ -73,27 +85,75 @@ impl Observed {
 enum Kind {
     Vm,
     Bucket,
+    /// Bytes a bucket sent (reads), for cross-region data transfer.
+    BucketEgress,
     Run,
+    /// Cloud Run instances alive: tells "no requests" from "not deployed".
+    RunInstances,
+    /// Cloud Run CPU and memory use, as a share of the container limits.
+    RunCpu,
+    RunMemory,
     Sql,
+    SqlCpu,
+    SqlMemory,
+    /// `INFORMATION_SCHEMA.TABLE_STORAGE`: logical and physical bytes.
+    Dataset,
+    /// The same bytes from the tables API (dataset-level permission), read
+    /// only where `INFORMATION_SCHEMA` is refused.
+    DatasetTables,
+    /// Cloud Monitoring `stored_bytes`: logical bytes only (fallback).
+    DatasetBytes,
 }
 
 impl Kind {
-    fn of(rtype: &str) -> Option<Kind> {
+    /// What is observed for a resource type, the preferred source first.
+    fn of(rtype: &str) -> &'static [Kind] {
         match rtype {
-            "google_compute_instance" => Some(Kind::Vm),
-            "google_storage_bucket" => Some(Kind::Bucket),
-            "google_cloud_run_v2_service" | "google_cloud_run_service" | "google_cloudfunctions2_function" => Some(Kind::Run),
-            "google_sql_database_instance" => Some(Kind::Sql),
-            _ => None,
+            "google_compute_instance" => &[Kind::Vm],
+            "google_storage_bucket" => &[Kind::Bucket, Kind::BucketEgress],
+            "google_cloud_run_v2_service" | "google_cloud_run_service" | "google_cloudfunctions2_function" => {
+                &[Kind::Run, Kind::RunInstances, Kind::RunCpu, Kind::RunMemory]
+            }
+            "google_sql_database_instance" => &[Kind::Sql, Kind::SqlCpu, Kind::SqlMemory],
+            "google_bigquery_dataset" => &[Kind::Dataset, Kind::DatasetBytes],
+            _ => &[],
         }
+    }
+
+    fn is_dataset(self) -> bool {
+        matches!(self, Kind::Dataset | Kind::DatasetTables | Kind::DatasetBytes)
+    }
+
+    /// Kinds whose resources can be matched by elimination when their name
+    /// is only known after apply (a random suffix): the only unnamed
+    /// instance of the code in a project and the only unclaimed one there.
+    fn matches_unnamed(self) -> bool {
+        matches!(self, Kind::Sql | Kind::SqlCpu | Kind::SqlMemory)
     }
 
     fn name(self) -> &'static str {
         match self {
             Kind::Vm => "vm",
             Kind::Bucket => "bucket",
+            Kind::BucketEgress => "bucket-egress",
             Kind::Run => "run",
+            Kind::RunInstances => "run-instances",
+            Kind::RunCpu => "run-cpu",
+            Kind::RunMemory => "run-memory",
             Kind::Sql => "sql",
+            Kind::SqlCpu => "sql-cpu",
+            Kind::SqlMemory => "sql-memory",
+            Kind::Dataset => "dataset",
+            Kind::DatasetTables => "dataset-tables",
+            Kind::DatasetBytes => "dataset-bytes",
+        }
+    }
+
+    /// Where the data comes from (shown in notes and in the `Usage` line).
+    fn source(self) -> &'static str {
+        match self {
+            Kind::Dataset | Kind::DatasetTables => "BigQuery storage",
+            _ => "Cloud Monitoring",
         }
     }
 }
@@ -109,6 +169,31 @@ struct Target {
     name: String,
     /// VMs: on-demand machine type and zone (for commitments).
     vm: Option<(String, String)>,
+    /// BigQuery datasets: location (`US`, `EU`, `europe-west1`…).
+    location: Option<String>,
+    /// For the console link: resource type, and zone (VMs) or region (Cloud Run).
+    rtype: String,
+    place: Option<String>,
+}
+
+/// The page of a resource in the Google Cloud console, where its metrics are.
+fn console_link(rtype: &str, project: &str, name: &str, place: Option<&str>) -> Option<String> {
+    let base = "https://console.cloud.google.com";
+    Some(match rtype {
+        "google_compute_instance" => match place {
+            Some(zone) => format!("{base}/compute/instancesDetail/zones/{zone}/instances/{name}?project={project}&tab=monitoring"),
+            // Zone unknown: the instances of the project.
+            None => format!("{base}/compute/instances?project={project}"),
+        },
+        "google_sql_database_instance" => format!("{base}/sql/instances/{name}/overview?project={project}"),
+        "google_cloud_run_v2_service" | "google_cloud_run_service" => {
+            format!("{base}/run/detail/{}/{name}/metrics?project={project}", place?)
+        }
+        "google_cloudfunctions2_function" => format!("{base}/functions/details/{}/{name}?env=gen2&project={project}&tab=metrics", place?),
+        "google_bigquery_dataset" => format!("{base}/bigquery?project={project}&ws=!1m4!1m3!3m2!1s{project}!2s{name}"),
+        "google_storage_bucket" => format!("{base}/storage/browser/{name};tab=observability?project={project}"),
+        _ => return None,
+    })
 }
 
 /// The resources of the code to observe (cheap to extract, owned).
@@ -120,18 +205,31 @@ impl Targets {
         let mut out = vec![];
         for p in sets.iter().flat_map(|s| s.iter()) {
             for r in &p.resources {
-                let (Some(kind), Some(gcp), Some(name)) = (Kind::of(&r.rtype), gcp_project(r), known_name(r)) else { continue };
-                let vm = (kind == Kind::Vm && !is_spot(r))
-                    .then(|| Some((r.attrs.get("machine_type")?.as_str()?.to_string(), zone_of(r)?.to_string())))
-                    .flatten();
-                out.push(Target {
-                    project: p.name.clone(),
-                    address: r.address.clone(),
-                    kind,
-                    gcp_project: gcp.to_string(),
-                    name: name.to_string(),
-                    vm,
-                });
+                for &kind in Kind::of(&r.rtype) {
+                    let name = if kind.is_dataset() { attr_str(r, "dataset_id") } else { known_name(r) };
+                    // An empty name: matched by elimination (see `Kind::matches_unnamed`).
+                    let name = name.or_else(|| kind.matches_unnamed().then_some(""));
+                    let (Some(gcp), Some(name)) = (gcp_project(r), name) else { continue };
+                    let location = (kind == Kind::Dataset).then(|| attr_str(r, "location").unwrap_or("US").to_lowercase());
+                    let vm = (kind == Kind::Vm && !is_spot(r))
+                        .then(|| Some((r.attrs.get("machine_type")?.as_str()?.to_string(), zone_of(r)?.to_string())))
+                        .flatten();
+                    let place = match r.rtype.as_str() {
+                        "google_compute_instance" => zone_of(r).map(str::to_string),
+                        _ => attr_str(r, "location").or(attr_str(r, "region")).or(r.provider.region.as_deref()).map(str::to_string),
+                    };
+                    out.push(Target {
+                        project: p.name.clone(),
+                        address: r.address.clone(),
+                        kind,
+                        gcp_project: gcp.to_string(),
+                        name: name.to_string(),
+                        vm,
+                        location,
+                        rtype: r.rtype.clone(),
+                        place,
+                    });
+                }
             }
         }
         Targets(out)
@@ -148,7 +246,12 @@ fn gcp_project(r: &ResourceInstance) -> Option<&str> {
 }
 
 fn known_name(r: &ResourceInstance) -> Option<&str> {
-    r.attrs.get("name").and_then(|v| v.as_str()).filter(|n| !n.is_empty() && !n.starts_with(crate::REF_PREFIX))
+    attr_str(r, "name")
+}
+
+/// A string attribute known before apply.
+fn attr_str<'a>(r: &'a ResourceInstance, key: &str) -> Option<&'a str> {
+    r.attrs.get(key).and_then(|v| v.as_str()).filter(|n| !n.is_empty() && !n.starts_with(crate::REF_PREFIX))
 }
 
 fn zone_of(r: &ResourceInstance) -> Option<&str> {
@@ -190,7 +293,7 @@ struct Cache {
 }
 
 fn cache_path(dir: &Path) -> PathBuf {
-    dir.join("observed.json")
+    dir.join(crate::pricing::sync::identity_file("observed"))
 }
 
 fn store_cache(dir: &Path, entries: Vec<(String, (u64, Values))>) {
@@ -235,11 +338,16 @@ fn classify(status: u16, body: &str) -> Failure {
 struct Endpoints {
     monitoring: String,
     compute: String,
+    bigquery: String,
 }
 
 impl Default for Endpoints {
     fn default() -> Self {
-        Endpoints { monitoring: "https://monitoring.googleapis.com".into(), compute: "https://compute.googleapis.com".into() }
+        Endpoints {
+            monitoring: "https://monitoring.googleapis.com".into(),
+            compute: "https://compute.googleapis.com".into(),
+            bigquery: "https://bigquery.googleapis.com".into(),
+        }
     }
 }
 
@@ -276,13 +384,27 @@ impl Http<'_> {
         }
     }
 
-    /// Cloud Monitoring time series, as values per `label`.
+    /// Cloud Monitoring time series, as values per `label` (summed over the
+    /// other labels).
     async fn series(
         &self,
         project: &str,
         filter: String,
         align_secs: u64,
         aligner: &str,
+        label: &str,
+    ) -> Result<BTreeMap<String, Series>, Failure> {
+        self.series_reduced(project, filter, align_secs, aligner, "REDUCE_SUM", label).await
+    }
+
+    /// Cloud Monitoring time series, as values per `label`, combined with `reducer`.
+    async fn series_reduced(
+        &self,
+        project: &str,
+        filter: String,
+        align_secs: u64,
+        aligner: &str,
+        reducer: &str,
         label: &str,
     ) -> Result<BTreeMap<String, Series>, Failure> {
         let url = format!("{}/v3/projects/{project}/timeSeries", self.api.monitoring);
@@ -294,7 +416,7 @@ impl Http<'_> {
             ("interval.endTime", rfc3339(end)),
             ("aggregation.alignmentPeriod", format!("{align_secs}s")),
             ("aggregation.perSeriesAligner", aligner.to_string()),
-            ("aggregation.crossSeriesReducer", "REDUCE_SUM".to_string()),
+            ("aggregation.crossSeriesReducer", reducer.to_string()),
             ("aggregation.groupByFields", label.to_string()),
             ("pageSize", "1000".to_string()),
         ];
@@ -320,6 +442,127 @@ impl Http<'_> {
                 }
                 None => break,
             }
+        }
+        Ok(out)
+    }
+
+    async fn post(&self, url: &str, body: &serde_json::Value) -> Result<serde_json::Value, Failure> {
+        let mut rq = self.client.post(url).json(body);
+        if let Auth::Bearer(t) = &self.auth {
+            rq = rq.bearer_auth(t);
+        }
+        if let Some(q) = self.quota {
+            rq = rq.header("x-goog-user-project", q);
+        }
+        match tokio::time::timeout_at(self.until, rq.send()).await {
+            Ok(Ok(r)) if r.status().is_success() => r.json().await.map_err(|_| Failure::Transient),
+            Ok(Ok(r)) => {
+                let status = r.status().as_u16();
+                let body = r.text().await.unwrap_or_default();
+                tracing::debug!("{url}: HTTP {status}: {}", body.chars().take(300).collect::<String>());
+                Err(classify(status, &body))
+            }
+            Ok(Err(e)) => {
+                tracing::debug!("{url}: {e}");
+                Err(Failure::Transient)
+            }
+            Err(_) => Err(Failure::Transient),
+        }
+    }
+
+    /// Storage of BigQuery datasets, from `INFORMATION_SCHEMA.TABLE_STORAGE`
+    /// (metadata only; billed as the 10 MB minimum of a query). The points of
+    /// each dataset are the bytes in `DATASET_COLUMNS` order.
+    async fn bq_storage(&self, project: &str, location: &str, datasets: &[String]) -> Result<BTreeMap<String, Series>, Failure> {
+        let url = format!("{}/bigquery/v2/projects/{project}/queries", self.api.bigquery);
+        let list: Vec<String> = datasets.iter().map(|d| format!("'{}'", d.replace(['\\', '\''], ""))).collect();
+        let sums: Vec<String> = DATASET_COLUMNS.iter().map(|c| format!("SUM({c})")).collect();
+        let query = format!(
+            "SELECT table_schema, {} FROM `region-{}`.INFORMATION_SCHEMA.TABLE_STORAGE WHERE table_schema IN ({}) AND NOT deleted GROUP BY table_schema",
+            sums.join(", "),
+            location.replace('`', ""),
+            list.join(", ")
+        );
+        let body = serde_json::json!({"query": query, "useLegacySql": false, "timeoutMs": 2500, "maxResults": 1000});
+        let j = self.post(&url, &body).await?;
+        if j["jobComplete"].as_bool() != Some(true) {
+            return Err(Failure::Transient);
+        }
+        let mut out = BTreeMap::new();
+        for row in j["rows"].as_array().into_iter().flatten() {
+            let cells: Vec<&serde_json::Value> = row["f"].as_array().into_iter().flatten().map(|c| &c["v"]).collect();
+            let Some(name) = cells.first().and_then(|v| v.as_str()) else { continue };
+            let points = cells[1..].iter().map(|v| v.as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0)).collect();
+            out.insert(name.to_string(), Series { points, span_hours: (WINDOW_DAYS * 24) as f64 });
+        }
+        Ok(out)
+    }
+
+    /// The same bytes as `bq_storage`, summed from the tables API: works with
+    /// dataset-level permissions. Fail-safe bytes are not exposed (0). A
+    /// dataset with too many tables to read is left out.
+    async fn bq_tables(&self, project: &str, datasets: &[String]) -> Result<BTreeMap<String, Series>, Failure> {
+        use futures::StreamExt;
+        const MAX_TABLES: usize = 500;
+        const FIELDS: &str =
+            "numActiveLogicalBytes,numLongTermLogicalBytes,numTotalPhysicalBytes,numLongTermPhysicalBytes,numTimeTravelPhysicalBytes";
+        let mut out = BTreeMap::new();
+        for d in datasets {
+            let base = format!("{}/bigquery/v2/projects/{project}/datasets/{d}/tables", self.api.bigquery);
+            let mut ids: Vec<String> = vec![];
+            let mut query = vec![("maxResults", "1000".to_string())];
+            let listed = loop {
+                let j = match self.get(&base, &query).await {
+                    Ok(j) => j,
+                    // An unknown dataset (not deployed yet): skipped.
+                    Err(Failure::Refused) => break false,
+                    Err(e) => return Err(e),
+                };
+                for t in j["tables"].as_array().into_iter().flatten() {
+                    if matches!(t["type"].as_str(), Some("TABLE" | "MATERIALIZED_VIEW"))
+                        && let Some(id) = t["tableReference"]["tableId"].as_str()
+                    {
+                        ids.push(id.to_string());
+                    }
+                }
+                match j["nextPageToken"].as_str().filter(|t| !t.is_empty()) {
+                    Some(t) if ids.len() <= MAX_TABLES => {
+                        query.retain(|(k, _)| *k != "pageToken");
+                        query.push(("pageToken", t.to_string()));
+                    }
+                    _ => break ids.len() <= MAX_TABLES,
+                }
+            };
+            if !listed {
+                continue;
+            }
+            let tables: Vec<Result<serde_json::Value, Failure>> = futures::stream::iter(ids.iter().map(|t| {
+                let url = format!("{base}/{t}");
+                async move { self.get(&url, &[("fields", FIELDS.to_string())]).await }
+            }))
+            .buffer_unordered(16)
+            .collect()
+            .await;
+            let mut sums = [0.0f64; 5];
+            for t in tables {
+                let t = t?;
+                let n = |k: &str| t[k].as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| t[k].as_f64()).unwrap_or(0.0);
+                let (total, long_term) = (n("numTotalPhysicalBytes"), n("numLongTermPhysicalBytes"));
+                // As in TABLE_STORAGE, active physical bytes include time travel.
+                let row = [
+                    n("numActiveLogicalBytes"),
+                    n("numLongTermLogicalBytes"),
+                    (total - long_term).max(0.0),
+                    long_term,
+                    n("numTimeTravelPhysicalBytes"),
+                ];
+                for (s, v) in sums.iter_mut().zip(row) {
+                    *s += v;
+                }
+            }
+            let mut points = sums.to_vec();
+            points.push(0.0);
+            out.insert(d.clone(), Series { points, span_hours: (WINDOW_DAYS * 24) as f64 });
         }
         Ok(out)
     }
@@ -420,17 +663,32 @@ fn one_of(names: &[String]) -> String {
     format!("one_of({})", quoted.join(","))
 }
 
-/// One query: a kind of data for a chunk of names in a GCP project.
+/// Columns of `INFORMATION_SCHEMA.TABLE_STORAGE` read for datasets.
+const DATASET_COLUMNS: [&str; 6] = [
+    "active_logical_bytes",
+    "long_term_logical_bytes",
+    "active_physical_bytes",
+    "long_term_physical_bytes",
+    "time_travel_physical_bytes",
+    "fail_safe_physical_bytes",
+];
+
+/// One query: a kind of data for a chunk of names in a GCP project (and
+/// location, for BigQuery).
 #[derive(Clone)]
 struct Query {
     kind: Kind,
     project: String,
+    location: String,
     names: Vec<String>,
 }
 
 impl Query {
     fn key(&self) -> String {
-        format!("{}|{}|{}", self.kind.name(), self.project, self.names.join(","))
+        match self.location.as_str() {
+            "" => format!("{}|{}|{}", self.kind.name(), self.project, self.names.join(",")),
+            l => format!("{}|{}|{l}|{}", self.kind.name(), self.project, self.names.join(",")),
+        }
     }
 
     async fn run(&self, http: &Http<'_>) -> Result<BTreeMap<String, Series>, Failure> {
@@ -458,15 +716,52 @@ impl Query {
                 );
                 http.series(p, f, 86400, "ALIGN_SUM", "resource.label.service_name").await
             }
-            Kind::Sql => {
-                let ids: Vec<String> = self.names.iter().map(|n| format!("{p}:{n}")).collect();
+            Kind::RunInstances => {
                 let f = format!(
-                    "metric.type=\"cloudsql.googleapis.com/database/disk/bytes_used\" AND resource.type=\"cloudsql_database\" AND resource.label.database_id={}",
-                    one_of(&ids)
+                    "metric.type=\"run.googleapis.com/container/instance_count\" AND resource.type=\"cloud_run_revision\" AND resource.label.service_name={}",
+                    one_of(&self.names)
                 );
-                let v = http.series(p, f, 86400, "ALIGN_MEAN", "resource.label.database_id").await?;
+                http.series(p, f, 86400, "ALIGN_MAX", "resource.label.service_name").await
+            }
+            Kind::BucketEgress => {
+                let f = format!(
+                    "metric.type=\"storage.googleapis.com/network/sent_bytes_count\" AND resource.type=\"gcs_bucket\" AND resource.label.bucket_name={}",
+                    one_of(&self.names)
+                );
+                http.series(p, f, 86400, "ALIGN_SUM", "resource.label.bucket_name").await
+            }
+            Kind::RunCpu | Kind::RunMemory => {
+                // Hourly 95th percentile of the distribution, the busiest revision.
+                let metric = if self.kind == Kind::RunCpu { "cpu" } else { "memory" };
+                let f = format!(
+                    "metric.type=\"run.googleapis.com/container/{metric}/utilizations\" AND resource.type=\"cloud_run_revision\" AND resource.label.service_name={}",
+                    one_of(&self.names)
+                );
+                http.series_reduced(p, f, 3600, "ALIGN_PERCENTILE_95", "REDUCE_MAX", "resource.label.service_name").await
+            }
+            Kind::Sql | Kind::SqlCpu | Kind::SqlMemory => {
+                let ids: Vec<String> = self.names.iter().map(|n| format!("{p}:{n}")).collect();
+                let (metric, align) = match self.kind {
+                    Kind::Sql => ("disk/bytes_used", 86400),
+                    Kind::SqlCpu => ("cpu/utilization", 3600),
+                    _ => ("memory/utilization", 3600),
+                };
+                let mut f = format!("metric.type=\"cloudsql.googleapis.com/database/{metric}\" AND resource.type=\"cloudsql_database\"");
+                if !ids.is_empty() {
+                    f.push_str(&format!(" AND resource.label.database_id={}", one_of(&ids)));
+                }
+                let v = http.series(p, f, align, "ALIGN_MEAN", "resource.label.database_id").await?;
                 Ok(v.into_iter().map(|(k, v)| (k.split_once(':').map(|(_, n)| n.to_string()).unwrap_or(k), v)).collect())
             }
+            Kind::DatasetBytes => {
+                let f = format!(
+                    "metric.type=\"bigquery.googleapis.com/storage/stored_bytes\" AND resource.type=\"bigquery_dataset\" AND resource.label.dataset_id={}",
+                    one_of(&self.names)
+                );
+                http.series(p, f, 86400, "ALIGN_MEAN", "resource.label.dataset_id").await
+            }
+            Kind::Dataset => http.bq_storage(p, &self.location, &self.names).await,
+            Kind::DatasetTables => http.bq_tables(p, &self.names).await,
         }
     }
 }
@@ -493,6 +788,19 @@ pub async fn collect(cache_dir: &Path, targets: &Targets, quota: Option<&str>, u
     collect_from(cache_dir, targets, quota, until, &Endpoints::default(), auth).await
 }
 
+/// An API client, when credentials are available (getting a token can be
+/// slow with gcloud: it counts in the deadline).
+async fn connect<'a>(
+    auth: Option<impl AsyncFnOnce() -> Option<Auth>>,
+    quota: Option<&'a str>,
+    until: std::time::Instant,
+    api: &'a Endpoints,
+) -> Option<Http<'a>> {
+    let auth = tokio::time::timeout_at(tokio::time::Instant::from_std(until), auth?()).await.ok().flatten()?;
+    let client = reqwest::Client::builder().user_agent(concat!("costerra/", env!("CARGO_PKG_VERSION"))).gzip(true).build().ok()?;
+    Some(Http { client, auth, quota, until: tokio::time::Instant::from_std(until), api })
+}
+
 /// `collect` with given APIs and credentials (resolved only when something is
 /// not cached: getting a token can be slow).
 async fn collect_from(
@@ -505,10 +813,11 @@ async fn collect_from(
 ) -> Observed {
     let mut obs = Observed::default();
     // Names to observe, per (kind, GCP project).
-    let mut wanted: BTreeMap<(Kind, String), BTreeSet<String>> = BTreeMap::new();
+    let mut wanted: BTreeMap<(Kind, String, String), BTreeSet<String>> = BTreeMap::new();
     let mut vm_projects: BTreeSet<String> = BTreeSet::new();
     for t in &targets.0 {
-        wanted.entry((t.kind, t.gcp_project.clone())).or_default().insert(t.name.clone());
+        let location = t.location.clone().unwrap_or_default();
+        wanted.entry((t.kind, t.gcp_project.clone(), location)).or_default().insert(t.name.clone());
         if t.vm.is_some() {
             vm_projects.insert(t.gcp_project.clone());
         }
@@ -517,10 +826,15 @@ async fn collect_from(
         return obs;
     }
     let mut queries = vec![];
-    for ((kind, project), names) in &wanted {
+    for ((kind, project, location), names) in &wanted {
+        // An unnamed resource: one query for every instance of the project.
+        if names.contains("") {
+            queries.push(Query { kind: *kind, project: project.clone(), location: location.clone(), names: vec![] });
+            continue;
+        }
         let names: Vec<String> = names.iter().cloned().collect();
         for chunk in names.chunks(CHUNK) {
-            queries.push(Query { kind: *kind, project: project.clone(), names: chunk.to_vec() });
+            queries.push(Query { kind: *kind, project: project.clone(), location: location.clone(), names: chunk.to_vec() });
         }
     }
 
@@ -528,10 +842,17 @@ async fn collect_from(
     let now = crate::pricing::sync::now();
     let fresh = |k: &str| cache.entries.get(k).filter(|(at, _)| now.saturating_sub(*at) < CACHE_TTL_SECS).map(|(_, v)| v.clone());
     let mut results: Vec<(Kind, String, Values)> = vec![];
+    // INFORMATION_SCHEMA queries, and whether they were refused.
+    let mut dataset_results: Vec<(Query, bool)> = vec![];
     let mut todo = vec![];
     for q in queries {
         match fresh(&q.key()) {
-            Some(v) => results.push((q.kind, q.project.clone(), v)),
+            Some(v) => {
+                if q.kind == Kind::Dataset {
+                    dataset_results.push((q.clone(), v.is_err()));
+                }
+                results.push((q.kind, q.project.clone(), v));
+            }
             None => todo.push(q),
         }
     }
@@ -547,13 +868,11 @@ async fn collect_from(
     }
 
     let mut store = vec![];
+    let mut auth = Some(auth);
+    let mut http: Option<Http> = None;
     if !todo.is_empty() || !commit_todo.is_empty() {
-        // Getting a token can be slow (gcloud): it counts in the deadline.
-        let auth = tokio::time::timeout_at(tokio::time::Instant::from_std(until), auth()).await.ok().flatten();
-        let client = reqwest::Client::builder().user_agent(concat!("costerra/", env!("CARGO_PKG_VERSION"))).gzip(true).build().ok();
-        if let (Some(auth), Some(client)) = (auth, client) {
-            let http = Http { client, auth, quota, until: tokio::time::Instant::from_std(until), api };
-            let http = &http;
+        http = connect(auth.take(), quota, until, api).await;
+        if let Some(http) = &http {
             let series = futures::future::join_all(todo.iter().map(|q| async move { (q, q.run(http).await) }));
             let commits = futures::future::join_all(commit_todo.iter().map(|p| async move { (p, http.commitments(p).await) }));
             let (series, commits) = futures::join!(series, commits);
@@ -561,6 +880,9 @@ async fn collect_from(
                 let Some(v) = cacheable(r) else { continue };
                 store.push((q.key(), (now, v.clone())));
                 results.push((q.kind, q.project.clone(), v));
+                if q.kind == Kind::Dataset {
+                    dataset_results.push((q.clone(), results.last().is_some_and(|(_, _, v)| v.is_err())));
+                }
             }
             for (p, r) in commits {
                 let Some(v) = cacheable(r) else { continue };
@@ -569,13 +891,43 @@ async fn collect_from(
             }
         }
     }
+
+    // Where INFORMATION_SCHEMA is refused, the tables API (dataset-level
+    // permission) gives the same bytes.
+    let mut fallback = vec![];
+    for (q, _) in dataset_results.iter().filter(|(_, failed)| *failed) {
+        let t = Query { kind: Kind::DatasetTables, ..q.clone() };
+        match fresh(&t.key()) {
+            Some(v) => results.push((t.kind, t.project.clone(), v)),
+            None => fallback.push(t),
+        }
+    }
+    if !fallback.is_empty() {
+        if http.is_none() {
+            http = connect(auth.take(), quota, until, api).await;
+        }
+        if let Some(http) = &http {
+            for (q, r) in futures::future::join_all(fallback.iter().map(|q| async move { (q, q.run(http).await) })).await {
+                let Some(v) = cacheable(r) else { continue };
+                store.push((q.key(), (now, v.clone())));
+                results.push((q.kind, q.project.clone(), v));
+            }
+        }
+    }
     store_cache(cache_dir, store);
 
     let mut disabled: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     let mut denied: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    // BigQuery storage read from the tables API: INFORMATION_SCHEMA is not needed there.
+    let tables_ok: BTreeSet<&String> = results
+        .iter()
+        .filter(|(k, _, v)| *k == Kind::DatasetTables && v.as_ref().is_ok_and(|m| !m.is_empty()))
+        .map(|(_, p, _)| p)
+        .collect();
     let failures = results
         .iter()
-        .map(|(_, p, v)| ("Cloud Monitoring", p, v))
+        .filter(|(k, p, _)| !(*k == Kind::Dataset && tables_ok.contains(p)))
+        .map(|(k, p, v)| (k.source(), p, v))
         .chain(commitments.iter().map(|(p, v)| ("Compute Engine commitments", p, v)));
     for (src, project, v) in failures {
         match v {
@@ -592,7 +944,13 @@ async fn collect_from(
         ));
     }
     for (src, projects) in &denied {
-        let role = if *src == "Cloud Monitoring" { "roles/monitoring.viewer" } else { "roles/compute.viewer" };
+        let role = match *src {
+            "Cloud Monitoring" => "roles/monitoring.viewer",
+            "BigQuery storage" => {
+                "roles/bigquery.metadataViewer and roles/bigquery.jobUser on the project, or roles/bigquery.metadataViewer on the datasets,"
+            }
+            _ => "roles/compute.viewer",
+        };
         obs.notes.push(format!(
             "{src}: permission denied for {} (grant {role} to use observed usage)",
             projects.iter().cloned().collect::<Vec<_>>().join(", ")
@@ -606,18 +964,54 @@ async fn collect_from(
             values.insert((kind, project.clone(), name), s);
         }
     }
-    if !values.is_empty() {
-        obs.sources.insert("Cloud Monitoring".into());
+    for (kind, _, _) in values.keys() {
+        obs.sources.insert(kind.source().into());
     }
     if commitments.values().any(|v| v.as_ref().is_ok_and(|m| !m.is_empty())) {
         obs.sources.insert("Compute Engine commitments".into());
     }
 
-    for t in &targets.0 {
-        let Some(s) = values.get(&(t.kind, t.gcp_project.clone(), t.name.clone())) else { continue };
-        if let Some(o) = observe(t.kind, s) {
-            obs.resources.insert((t.project.clone(), t.address.clone()), o);
+    // Unnamed resources: the only one of the code in its project, matched with
+    // the only instance there that no named resource of the code claims.
+    let mut resolved: HashMap<(Kind, String), String> = HashMap::new();
+    for t in targets.0.iter().filter(|t| t.name.is_empty()) {
+        let unnamed = targets.0.iter().filter(|u| u.name.is_empty() && u.kind == t.kind && u.gcp_project == t.gcp_project).count();
+        let named: BTreeSet<&str> =
+            targets.0.iter().filter(|u| u.kind == t.kind && u.gcp_project == t.gcp_project).map(|u| u.name.as_str()).collect();
+        let free: Vec<&String> = values
+            .keys()
+            .filter(|(k, p, n)| *k == t.kind && *p == t.gcp_project && !named.contains(n.as_str()))
+            .map(|(_, _, n)| n)
+            .collect();
+        if let ([only], 1) = (free.as_slice(), unnamed) {
+            resolved.insert((t.kind, t.gcp_project.clone()), (*only).clone());
         }
+    }
+    for t in &targets.0 {
+        let name = match t.name.as_str() {
+            "" => match resolved.get(&(t.kind, t.gcp_project.clone())) {
+                Some(n) => n.clone(),
+                None => continue,
+            },
+            n => n.to_string(),
+        };
+        // INFORMATION_SCHEMA, or the tables API where it was refused.
+        let found = values.get(&(t.kind, t.gcp_project.clone(), name.clone())).map(|s| (t.kind, s)).or_else(|| {
+            (t.kind == Kind::Dataset)
+                .then(|| values.get(&(Kind::DatasetTables, t.gcp_project.clone(), name.clone())).map(|s| (Kind::DatasetTables, s)))
+                .flatten()
+        });
+        let Some((kind, s)) = found else { continue };
+        let Some(mut o) = observe(kind, s) else { continue };
+        o.console = console_link(&t.rtype, &t.gcp_project, &name, t.place.as_deref());
+        // Several kinds per resource: the first source of a value wins.
+        let e = obs.resources.entry((t.project.clone(), t.address.clone())).or_default();
+        for (k, v) in o.usage {
+            e.usage.entry(k).or_insert(v);
+        }
+        e.cpu = e.cpu.or(o.cpu);
+        e.console = e.console.take().or(o.console);
+        e.memory = e.memory.or(o.memory);
     }
     allocate_commitments(&mut obs, targets, &commitments);
     obs
@@ -632,23 +1026,49 @@ fn observe(kind: Kind, s: &Series) -> Option<ObservedResource> {
         return None;
     }
     let mean = points.iter().sum::<f64>() / points.len() as f64;
+    let stats = || {
+        let mut sorted = points.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        let p95 = sorted[((sorted.len() as f64 * 0.95).ceil() as usize).clamp(1, sorted.len()) - 1];
+        CpuStats { mean, p95, max: sorted[sorted.len() - 1], days: span / 24.0 }
+    };
     let mut o = ObservedResource::default();
     match kind {
         Kind::Vm => {
             // One point per hour the VM ran.
             let hours = points.len() as f64;
-            let mut sorted = points.to_vec();
-            sorted.sort_by(f64::total_cmp);
-            let p95 = sorted[((sorted.len() as f64 * 0.95).ceil() as usize).clamp(1, sorted.len()) - 1];
-            o.cpu = Some(CpuStats { mean, p95, days: span / 24.0 });
+            o.cpu = Some(stats());
             o.usage.insert("monthly_hrs".into(), (hours / span * HOURS_PER_MONTH).min(HOURS_PER_MONTH).round());
         }
-        Kind::Bucket | Kind::Sql => {
+        // Daily bytes sent, scaled to a month: `sent_gb` (not a usage key of the
+        // cost model; read by the cross-region data transfer rule).
+        Kind::BucketEgress => {
+            let total: f64 = points.iter().sum();
+            o.usage.insert("sent_gb".into(), (total / span * HOURS_PER_MONTH / f64::from(1u32 << 30) * 100.0).round() / 100.0);
+        }
+        // Instances were running: a service without request data had no requests.
+        Kind::RunInstances => {
+            o.usage.insert("monthly_requests".into(), 0.0);
+        }
+        Kind::SqlCpu | Kind::RunCpu => o.cpu = Some(stats()),
+        Kind::SqlMemory | Kind::RunMemory => o.memory = Some(stats()),
+        Kind::Bucket | Kind::Sql | Kind::DatasetBytes => {
             o.usage.insert("storage_gb".into(), (mean / f64::from(1u32 << 30) * 100.0).round() / 100.0);
         }
         Kind::Run => {
             let total: f64 = points.iter().sum();
             o.usage.insert("monthly_requests".into(), (total / span * HOURS_PER_MONTH).round());
+        }
+        Kind::Dataset | Kind::DatasetTables => {
+            let [active, long_term, active_physical, long_term_physical, time_travel, fail_safe] = points[..] else { return None };
+            let gib = |b: f64| (b.max(0.0) / f64::from(1u32 << 30) * 100.0).round() / 100.0;
+            o.usage.insert("storage_gb".into(), gib(active));
+            o.usage.insert("long_term_storage_gb".into(), gib(long_term));
+            // Active physical bytes include time travel bytes.
+            o.usage.insert("physical_storage_gb".into(), gib(active_physical - time_travel));
+            o.usage.insert("long_term_physical_storage_gb".into(), gib(long_term_physical));
+            o.usage.insert("time_travel_storage_gb".into(), gib(time_travel));
+            o.usage.insert("fail_safe_storage_gb".into(), gib(fail_safe));
         }
     }
     Some(o)
@@ -753,6 +1173,9 @@ mod tests {
             gcp_project: "p".into(),
             name: address.into(),
             vm: Some((machine.into(), "europe-west1-b".into())),
+            location: None,
+            rtype: "google_compute_instance".into(),
+            place: Some("europe-west1-b".into()),
         };
         let targets = Targets(vec![vm("a", "n2-standard-8"), vm("b", "n2-standard-8"), vm("c", "e2-standard-4")]);
         let mut found = BTreeMap::new();
@@ -783,6 +1206,9 @@ mod tests {
             gcp_project: "proj".into(),
             name: name.into(),
             vm: vm.map(|(m, z)| (m.into(), z.into())),
+            location: (kind == Kind::Dataset).then(|| "eu".into()),
+            rtype: String::new(),
+            place: None,
         }
     }
 
@@ -846,7 +1272,7 @@ mod tests {
     }
 
     fn run(server: &fake_http::Server, cache: &Path, targets: &Targets, auth: Option<Auth>) -> Observed {
-        let api = Endpoints { monitoring: server.url.clone(), compute: server.url.clone() };
+        let api = Endpoints { monitoring: server.url.clone(), compute: server.url.clone(), bigquery: server.url.clone() };
         let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
         block_on(collect_from(cache, targets, Some("quota-proj"), until, &api, async || auth))
     }
@@ -914,6 +1340,278 @@ mod tests {
         let again = run(&server, cache.path(), &all_targets(), token());
         assert_eq!(again.notes, obs.notes);
         assert_eq!(server.count(), n);
+    }
+
+    #[test]
+    fn reads_bigquery_dataset_storage() {
+        let gib = 1u64 << 30;
+        let server = fake_http::serve(move |req| {
+            assert!(req.path.ends_with("/bigquery/v2/projects/proj/queries"), "{}", req.path);
+            let q: serde_json::Value = serde_json::from_str(&req.body).unwrap();
+            let sql = q["query"].as_str().unwrap();
+            assert!(sql.contains("`region-eu`.INFORMATION_SCHEMA.TABLE_STORAGE") && sql.contains("IN ('events')"), "{sql}");
+            let cell = |v: u64| json!({"v": v.to_string()});
+            let row = json!({"f": [{"v": "events"}, cell(1000 * gib), cell(500 * gib), cell(120 * gib), cell(50 * gib), cell(20 * gib), cell(10 * gib)]});
+            (200, json!({"jobComplete": true, "rows": [row]}).to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let targets = Targets(vec![target(Kind::Dataset, "events", None)]);
+        let obs = run(&server, cache.path(), &targets, token());
+        assert_eq!(obs.sources.iter().map(String::as_str).collect::<Vec<_>>(), ["BigQuery storage"]);
+        let u = &obs.get("live/prod", "dataset.events").unwrap().usage;
+        let want = [
+            ("storage_gb", 1000.0),
+            ("long_term_storage_gb", 500.0),
+            ("physical_storage_gb", 100.0),
+            ("long_term_physical_storage_gb", 50.0),
+            ("time_travel_storage_gb", 20.0),
+            ("fail_safe_storage_gb", 10.0),
+        ];
+        for (k, v) in want {
+            assert_eq!(u[k], v, "{k}");
+        }
+    }
+
+    #[test]
+    fn bigquery_without_permission_is_a_note() {
+        let server = fake_http::serve(|_| {
+            (403, json!({"error": {"message": "Access Denied: User does not have bigquery.jobs.create permission", "status": "PERMISSION_DENIED"}}).to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let obs = run(&server, cache.path(), &Targets(vec![target(Kind::Dataset, "events", None)]), token());
+        assert!(obs.resources.is_empty());
+        let notes = obs.notes.join("\n");
+        assert!(
+            notes.contains("BigQuery storage: permission denied for proj (grant roles/bigquery.metadataViewer and roles/bigquery.jobUser"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn reads_cloud_sql_cpu_and_memory_and_falls_back_to_stored_bytes() {
+        let gib = f64::from(1u32 << 30);
+        let server = fake_http::serve(move |req| {
+            if req.path.ends_with("/queries") {
+                return (
+                    403,
+                    json!({"error": {"message": "User does not have permission to query table", "status": "PERMISSION_DENIED"}})
+                        .to_string(),
+                );
+            }
+            let filter = req.param("filter").unwrap_or_default();
+            let body = if filter.contains("cloudsql.googleapis.com/database/cpu/utilization") {
+                json!({"timeSeries": [series_json("resource", "database_id", "proj:db", &vec![json!({"doubleValue": 0.1}); 200], 1)]})
+            } else if filter.contains("cloudsql.googleapis.com/database/memory/utilization") {
+                json!({"timeSeries": [series_json("resource", "database_id", "proj:db", &vec![json!({"doubleValue": 0.4}); 200], 1)]})
+            } else if filter.contains("bigquery.googleapis.com/storage/stored_bytes") {
+                assert!(filter.contains(r#"dataset_id=one_of("events")"#), "{filter}");
+                json!({"timeSeries": [series_json("resource", "dataset_id", "events", &vec![json!({"doubleValue": 300.0 * gib}); 10], 24)]})
+            } else {
+                return (400, "{}".into());
+            };
+            (200, body.to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        // Each kind of a resource is one target with the same address.
+        let mut targets = vec![];
+        for kind in [Kind::SqlCpu, Kind::SqlMemory] {
+            targets.push(Target { address: "sql.db".into(), ..target(kind, "db", None) });
+        }
+        for kind in [Kind::Dataset, Kind::DatasetBytes] {
+            targets.push(Target { address: "dataset.events".into(), ..target(kind, "events", None) });
+        }
+        let obs = run(&server, cache.path(), &Targets(targets), token());
+        let db = obs.get("live/prod", "sql.db").unwrap();
+        let (cpu, mem) = (db.cpu.unwrap(), db.memory.unwrap());
+        assert!((cpu.mean - 0.1).abs() < 1e-9 && (mem.p95 - 0.4).abs() < 1e-9 && cpu.days > 8.0, "{db:?}");
+        assert_eq!(obs.get("live/prod", "dataset.events").unwrap().usage["storage_gb"], 300.0);
+        assert!(obs.notes.iter().any(|n| n.starts_with("BigQuery storage: permission denied")), "{:?}", obs.notes);
+        assert_eq!(obs.sources.iter().map(String::as_str).collect::<Vec<_>>(), ["Cloud Monitoring"]);
+    }
+
+    #[test]
+    fn cloud_run_instances_without_requests_mean_no_traffic() {
+        let server = fake_http::serve(|req| {
+            let filter = req.param("filter").unwrap_or_default();
+            let body = if filter.contains("request_count") {
+                json!({"timeSeries": [series_json("resource", "service_name", "busy", &vec![json!({"int64Value": "1000"}); 30], 24)]})
+            } else if filter.contains("instance_count") {
+                let alive = |n| series_json("resource", "service_name", n, &vec![json!({"int64Value": "1"}); 30], 24);
+                json!({"timeSeries": [alive("busy"), alive("quiet")]})
+            } else {
+                return (400, "{}".into());
+            };
+            (200, body.to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let mut targets = vec![];
+        for name in ["busy", "quiet", "absent"] {
+            for kind in [Kind::Run, Kind::RunInstances] {
+                targets.push(Target { address: format!("run.{name}"), ..target(kind, name, None) });
+            }
+        }
+        let obs = run(&server, cache.path(), &Targets(targets), token());
+        let requests = |a: &str| obs.get("live/prod", a).map(|o| o.usage["monthly_requests"]);
+        assert!(requests("run.busy").is_some_and(|r| r > 30_000.0));
+        assert_eq!(requests("run.quiet"), Some(0.0));
+        // Neither requests nor instances: maybe not deployed, nothing is assumed.
+        assert_eq!(requests("run.absent"), None);
+    }
+
+    #[test]
+    fn unnamed_cloud_sql_instances_are_matched_by_elimination() {
+        let serve = |deployed: &'static [&'static str]| {
+            fake_http::serve(move |req| {
+                let filter = req.param("filter").unwrap_or_default();
+                // One query for the whole project: no name filter.
+                assert!(!filter.contains("database_id="), "{filter}");
+                let ts: Vec<_> = deployed
+                    .iter()
+                    .map(|d| series_json("resource", "database_id", &format!("proj:{d}"), &vec![json!({"doubleValue": 0.1}); 100], 1))
+                    .collect();
+                (200, json!({"timeSeries": ts}).to_string())
+            })
+        };
+        let targets = || {
+            Targets(vec![
+                Target { address: "sql.known".into(), ..target(Kind::SqlCpu, "known", None) },
+                Target { address: "sql.random".into(), ..target(Kind::SqlCpu, "", None) },
+            ])
+        };
+        let server = serve(&["known", "pg-app-dev-akzo"]);
+        let cache = tempfile::tempdir().unwrap();
+        let obs = run(&server, cache.path(), &targets(), token());
+        assert!(obs.get("live/prod", "sql.known").and_then(|o| o.cpu).is_some());
+        assert!(obs.get("live/prod", "sql.random").and_then(|o| o.cpu).is_some(), "{:?}", obs.resources);
+        // Two unclaimed instances: which one is ours is unknown.
+        let server = serve(&["known", "pg-app-dev-akzo", "pg-other-x"]);
+        let cache = tempfile::tempdir().unwrap();
+        let obs = run(&server, cache.path(), &targets(), token());
+        assert!(obs.get("live/prod", "sql.random").is_none());
+    }
+
+    #[test]
+    fn bigquery_tables_api_when_information_schema_is_refused() {
+        let gib = 1u64 << 30;
+        let server = fake_http::serve(move |req| {
+            let denied = (403, json!({"error": {"message": "Access Denied", "status": "PERMISSION_DENIED"}}).to_string());
+            let b = |n: u64| (n * gib).to_string();
+            let body = if req.path.ends_with("/queries") {
+                return denied;
+            } else if req.path.ends_with("/datasets/events/tables") {
+                json!({"tables": [
+                    {"type": "TABLE", "tableReference": {"tableId": "a"}},
+                    {"type": "VIEW", "tableReference": {"tableId": "v"}},
+                    {"type": "TABLE", "tableReference": {"tableId": "b"}}
+                ]})
+            } else if req.path.ends_with("/tables/a") {
+                assert!(req.param("fields").is_some_and(|f| f.contains("numTotalPhysicalBytes")));
+                json!({"numActiveLogicalBytes": b(600), "numLongTermLogicalBytes": b(400), "numTotalPhysicalBytes": b(130), "numLongTermPhysicalBytes": b(40), "numTimeTravelPhysicalBytes": b(10)})
+            } else if req.path.ends_with("/tables/b") {
+                json!({"numActiveLogicalBytes": b(400), "numLongTermLogicalBytes": b(100), "numTotalPhysicalBytes": b(70), "numLongTermPhysicalBytes": b(10), "numTimeTravelPhysicalBytes": b(10)})
+            } else if req.path.ends_with("/datasets/locked/tables") {
+                return denied;
+            } else {
+                return (404, json!({"error": {"message": "Not found"}}).to_string());
+            };
+            (200, body.to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let obs = run(&server, cache.path(), &Targets(vec![target(Kind::Dataset, "events", None)]), token());
+        let u = &obs.get("live/prod", "dataset.events").unwrap().usage;
+        for (k, v) in [
+            ("storage_gb", 1000.0),
+            ("long_term_storage_gb", 500.0),
+            ("physical_storage_gb", 130.0),
+            ("long_term_physical_storage_gb", 50.0),
+            ("time_travel_storage_gb", 20.0),
+            ("fail_safe_storage_gb", 0.0),
+        ] {
+            assert_eq!(u[k], v, "{k}");
+        }
+        // The tables API worked: no note about INFORMATION_SCHEMA.
+        assert!(obs.notes.is_empty(), "{:?}", obs.notes);
+        assert_eq!(obs.sources.iter().map(String::as_str).collect::<Vec<_>>(), ["BigQuery storage"]);
+        // Cached: nothing is fetched again.
+        let n = server.count();
+        run(&server, cache.path(), &Targets(vec![target(Kind::Dataset, "events", None)]), token());
+        assert_eq!(server.count(), n);
+
+        // Both refused: one note with both ways to grant access.
+        let cache = tempfile::tempdir().unwrap();
+        let obs = run(&server, cache.path(), &Targets(vec![target(Kind::Dataset, "locked", None)]), token());
+        assert!(obs.resources.is_empty());
+        let notes = obs.notes.join("\n");
+        assert!(
+            notes.contains("BigQuery storage: permission denied for proj")
+                && notes.contains("roles/bigquery.metadataViewer on the datasets"),
+            "{notes}"
+        );
+        assert_eq!(obs.notes.len(), 1, "{notes}");
+    }
+
+    #[test]
+    fn console_links() {
+        let c = |t, n, place| console_link(t, "p-1", n, place);
+        assert_eq!(
+            c("google_compute_instance", "vm", Some("europe-west1-b")).as_deref(),
+            Some("https://console.cloud.google.com/compute/instancesDetail/zones/europe-west1-b/instances/vm?project=p-1&tab=monitoring")
+        );
+        assert_eq!(
+            c("google_compute_instance", "vm", None).as_deref(),
+            Some("https://console.cloud.google.com/compute/instances?project=p-1")
+        );
+        assert_eq!(
+            c("google_sql_database_instance", "db", None).as_deref(),
+            Some("https://console.cloud.google.com/sql/instances/db/overview?project=p-1")
+        );
+        assert_eq!(
+            c("google_cloud_run_v2_service", "api", Some("europe-west1")).as_deref(),
+            Some("https://console.cloud.google.com/run/detail/europe-west1/api/metrics?project=p-1")
+        );
+        assert_eq!(
+            c("google_cloudfunctions2_function", "f", Some("europe-west1")).as_deref(),
+            Some("https://console.cloud.google.com/functions/details/europe-west1/f?env=gen2&project=p-1&tab=metrics")
+        );
+        assert!(c("google_bigquery_dataset", "ds", None).is_some_and(|u| u.contains("!1sp-1!2sds")));
+        assert_eq!(c("google_cloud_run_v2_service", "api", None), None);
+        assert_eq!(c("google_pubsub_topic", "t", None), None);
+    }
+
+    #[test]
+    fn bytes_sent_by_buckets() {
+        let gib = f64::from(1u32 << 30);
+        let server = fake_http::serve(move |req| {
+            let filter = req.param("filter").unwrap_or_default();
+            if !filter.contains("network/sent_bytes_count") {
+                return (400, "{}".into());
+            }
+            assert_eq!(req.param("aggregation.perSeriesAligner"), Some("ALIGN_SUM"));
+            (
+                200,
+                json!({"timeSeries": [series_json("resource", "bucket_name", "logs", &vec![json!({"doubleValue": 10.0 * gib}); 30], 24)]})
+                    .to_string(),
+            )
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let t = Target { address: "bucket.logs".into(), ..target(Kind::BucketEgress, "logs", None) };
+        let obs = run(&server, cache.path(), &Targets(vec![t]), token());
+        // 10 GiB a day for 30 days.
+        let sent = obs.get("live/prod", "bucket.logs").unwrap().usage["sent_gb"];
+        assert!((sent - 304.17).abs() < 1.0, "{sent}");
+    }
+
+    #[test]
+    fn several_kinds_per_resource_type() {
+        assert_eq!(Kind::of("google_sql_database_instance"), &[Kind::Sql, Kind::SqlCpu, Kind::SqlMemory]);
+        assert_eq!(Kind::of("google_storage_bucket"), &[Kind::Bucket, Kind::BucketEgress]);
+        assert_eq!(Kind::of("google_bigquery_dataset"), &[Kind::Dataset, Kind::DatasetBytes]);
+        assert_eq!(Kind::of("google_cloud_run_v2_service"), &[Kind::Run, Kind::RunInstances, Kind::RunCpu, Kind::RunMemory]);
+        assert!(Kind::of("google_pubsub_topic").is_empty());
+        assert_eq!(
+            (Kind::SqlCpu.name(), Kind::DatasetBytes.name(), Kind::DatasetBytes.source()),
+            ("sql-cpu", "dataset-bytes", "Cloud Monitoring")
+        );
     }
 
     #[test]

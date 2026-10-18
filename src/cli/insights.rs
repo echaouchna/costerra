@@ -48,7 +48,7 @@ pub struct Pending {
 }
 
 pub fn start(a: &RunArgs, config: &Config, sets: &[&[Project]], billing_account: Option<String>) -> Option<Pending> {
-    if a.eval.offline || a.no_insights || a.no_recommendations || !config.gcp_recommendations.unwrap_or(true) {
+    if a.eval.offline || a.no_insights || !a.show_recommendations() || !config.gcp_recommendations.unwrap_or(true) {
         return None;
     }
     let queries = insights::gcp_queries(sets, billing_account.as_deref());

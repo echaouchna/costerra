@@ -48,6 +48,7 @@ fn checkout_base(path: &Path, git_ref: &str) -> Result<(tempfile::TempDir, PathB
 
 pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let a = &d.run;
+    ui::set_details(a.details);
     common::start_ui("Evaluating Terraform");
     let config = load_config(a)?;
     let prefetch = prices::start_prefetch(a, &config);
@@ -81,11 +82,11 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let observed = insights::finish_observed(observing);
     let pending = insights::start(a, &config, &[&head_projects], pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
-    let mut head = price(a, &head_projects, &config, &pricer, &usage, observed.as_ref());
+    let mut head = price(a, &head_projects, &config, &pricer, &usage, observed.as_ref(), a.show_recommendations());
     insights::finish(pending, &mut head, &head_projects);
     let dr: DiffReport = match base {
         Base::Report(b) => diff::compare(&b, &head),
-        Base::Projects(p) => diff::compare(&price(a, &p, &config, &pricer, &usage, observed.as_ref()), &head),
+        Base::Projects(p) => diff::compare(&price(a, &p, &config, &pricer, &usage, observed.as_ref(), a.show_recommendations()), &head),
         Base::Empty => diff::compare(&Report { projects: vec![], monthly_cost: 0.0, ..head.clone() }, &head),
         Base::Plan => match diff::from_plan(&head) {
             Some(pd) => pd,
@@ -96,6 +97,7 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
         },
     };
     ui::clear();
+    common::report_auth_problems();
 
     let text = match a.format {
         Format::Json => serde_json::to_string_pretty(&serde_json::json!({ "diff": dr, "report": head }))? + "\n",
@@ -103,7 +105,7 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
         Format::Table => {
             let st = style(a, color);
             let mut t = output::diff_table(&dr, &st);
-            if !a.no_recommendations && head.projects.iter().any(|p| !p.recommendations.is_empty()) {
+            if a.show_recommendations() && head.projects.iter().any(|p| !p.recommendations.is_empty()) {
                 t.push('\n');
                 t.push_str(&output::summary(&head, &st));
             }

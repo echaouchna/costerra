@@ -86,9 +86,25 @@ sku query service="" region="": release
 resources: release
     {{ bin }} resources
 
-# Benchmark a breakdown (prices cached, no network)
+# Benchmark a breakdown (prices cached, no network): time and peak memory
 bench path="testdata": release
-    hyperfine --warmup 2 '{{ bin }} breakdown {{ path }} --no-insights --no-refresh'
+    hyperfine --warmup 2 '{{ bin }} breakdown {{ path }} --offline --list-prices'
+
+# Profile the CPU of a breakdown with samply (from mise.toml); opens the Firefox Profiler
+profile path="testdata" *args="--offline --list-prices":
+    cargo build --profile profiling
+    samply record target/profiling/costerra breakdown {{ path }} {{ args }}
+
+# Peak memory (max resident set size) of a breakdown
+mem path="testdata" *args="--offline --list-prices":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --profile profiling -q
+    if [ "$(uname)" = Darwin ]; then
+      /usr/bin/time -l target/profiling/costerra breakdown {{ path }} {{ args }} 2>&1 >/dev/null | awk '/maximum resident/ {printf "peak memory: %.1f MiB\n", $1 / 1048576}'
+    else
+      /usr/bin/time -v target/profiling/costerra breakdown {{ path }} {{ args }} 2>&1 >/dev/null | awk -F: '/Maximum resident/ {printf "peak memory: %.1f MiB\n", $2 / 1024}'
+    fi
 
 # Generate a plan JSON fixture from testdata/terraform/basic (needs GCP credentials)
 plan-fixture out="/tmp/costerra-plan.json":

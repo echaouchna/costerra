@@ -308,9 +308,11 @@ pub fn build_pricer(a: &RunArgs, config: &Config, sets: &[&[Project]], usage: &U
                 (false, n) => format!(" · {n} more refreshing in the background"),
             }
         );
-        if ui::enabled() {
+        if !ui::details() {
+            tracing::info!("{summary}");
+        } else if ui::enabled() {
             ui::println(&format!("\x1b[32m💰\x1b[0m \x1b[2m{summary}\x1b[0m"));
-        } else if changed > 0 || throttled {
+        } else {
             notice("info", summary);
         }
         tracing::info!("refreshed {} of {} contract prices", fresh.len(), ids.len());

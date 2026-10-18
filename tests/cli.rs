@@ -62,7 +62,7 @@ const OFFLINE: &[&str] = &["--offline", "--list-prices"];
 #[test]
 fn breakdown_json_and_markdown_agree_on_savings() {
     let cache = cache_dir();
-    let mut args = vec!["breakdown", "terragrunt", "-f", "json"];
+    let mut args = vec!["breakdown", "terragrunt", "-f", "json", "--recommendations"];
     args.extend(OFFLINE);
     let o = costerra(cache.path(), &testdata(""), &args);
     assert!(o.status.success(), "{}", text(&o.stderr));
@@ -70,7 +70,7 @@ fn breakdown_json_and_markdown_agree_on_savings() {
     assert!((j["monthly_cost"].as_f64().unwrap() - 1291.46).abs() < 0.01);
     assert!((j["potential_savings"].as_f64().unwrap() - 336.06).abs() < 0.01);
 
-    let mut args = vec!["breakdown", "terragrunt", "-f", "markdown"];
+    let mut args = vec!["breakdown", "terragrunt", "-f", "markdown", "--recommendations"];
     args.extend(OFFLINE);
     let o = costerra(cache.path(), &testdata(""), &args);
     let md = text(&o.stdout);
@@ -200,7 +200,7 @@ fn observed_usage_settings_and_removed_rabbit_options() {
 #[test]
 fn recommendations_say_what_they_are_based_on() {
     let cache = cache_dir();
-    let mut args = vec!["breakdown", "terragrunt", "-f", "json"];
+    let mut args = vec!["breakdown", "terragrunt", "-f", "json", "--recommendations"];
     args.extend(OFFLINE);
     let o = costerra(cache.path(), &testdata(""), &args);
     let j: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
@@ -210,7 +210,7 @@ fn recommendations_say_what_they_are_based_on() {
     assert!(recs.iter().all(|r| r["basis"] == "code"), "no usage file nor observed usage");
     assert!(j.get("observed").is_none());
 
-    let mut args = vec!["breakdown", "terragrunt"];
+    let mut args = vec!["breakdown", "terragrunt", "--details"];
     args.extend(OFFLINE);
     let out = text(&costerra(cache.path(), &testdata(""), &args).stdout);
     assert!(out.contains("Source: costerra rule compute-cud, based on the code"), "{out}");
@@ -227,4 +227,163 @@ fn unpriced_resources_cost_zero_not_minus_zero() {
     let o = costerra(cache.path(), dir.path(), &args);
     let out = text(&o.stdout);
     assert!(!out.contains("-0.0"), "{out}");
+}
+
+#[test]
+fn recommendations_and_free_tiers_are_opt_in() {
+    let cache = cache_dir();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["breakdown", "terragrunt"];
+        args.extend(OFFLINE);
+        args.extend(extra);
+        let o = costerra(cache.path(), &testdata(""), &args);
+        assert!(o.status.success(), "{}", text(&o.stderr));
+        text(&o.stdout)
+    };
+    let out = run(&[]);
+    assert!(!out.contains("Recommendations") && !out.contains("Free tiers"), "{out}");
+    // Price notes and the contract price hint are details.
+    assert!(!out.contains("sustained use discount") && !out.contains("--billing-account"), "{out}");
+    assert!(out.contains("OVERALL TOTAL"), "{out}");
+
+    let out = run(&["--recommendations"]);
+    assert!(out.contains("💡 Recommendations (6)") && !out.contains("Free tiers"), "{out}");
+    assert!(!out.contains("Source: "), "sources are details: {out}");
+    let out = run(&["--details"]);
+    for want in ["💡 Recommendations", "Source: ", "sustained use discount", "--billing-account"] {
+        assert!(out.contains(want), "missing {want}: {out}");
+    }
+    // --no-recommendations wins over --details.
+    assert!(!run(&["--details", "--no-recommendations"]).contains("Recommendations"));
+
+    let mut args = vec!["breakdown", "terragrunt", "-f", "json"];
+    args.extend(OFFLINE);
+    let j: serde_json::Value = serde_json::from_slice(&costerra(cache.path(), &testdata(""), &args).stdout).unwrap();
+    assert!(j["projects"].as_array().unwrap().iter().all(|p| p.get("recommendations").is_none()), "{j}");
+    assert_eq!(j["potential_savings"], 0.0);
+
+    // Free tiers (storage uses services that have one).
+    let tiers = |extra: &[&str]| {
+        let mut args = vec!["breakdown", "services/storage", "-f", "json"];
+        args.extend(OFFLINE);
+        args.extend(extra);
+        let j: serde_json::Value = serde_json::from_slice(&costerra(cache.path(), &testdata(""), &args).stdout).unwrap();
+        j["free_tiers"].as_array().unwrap().len()
+    };
+    assert_eq!(tiers(&[]), 0);
+    assert!(tiers(&["--free-tier"]) > 0 && tiers(&["--details"]) > 0 && tiers(&["--include-free-tier"]) > 0);
+    let mut args = vec!["breakdown", "services/storage", "--free-tier"];
+    args.extend(OFFLINE);
+    let out = text(&costerra(cache.path(), &testdata(""), &args).stdout);
+    assert!(out.contains("🎁 Free tiers") && !out.contains("Recommendations"), "{out}");
+}
+
+/// An observed-usage cache with the CPU use of the prod app VMs (8% mean),
+/// so that no Google API is called.
+fn seed_observed(cache: &Path, prod_cpu: f64) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let series = |m: f64| serde_json::json!({"points": vec![m; 720], "span_hours": 720.0});
+    let vms = |prefix: &str, n: usize, m: f64| (0..n).map(|i| (format!("{prefix}{i}"), series(m))).collect::<serde_json::Map<_, _>>();
+    let entries = serde_json::json!({
+        "vm|example-prod|app-0,app-1,app-2,app-3": [now, {"Ok": vms("app-", 4, prod_cpu)}],
+        "vm|example-dev|app-dev-0,app-dev-1": [now, {"Ok": vms("app-dev-", 2, 0.6)}],
+    });
+    std::fs::write(cache.join("observed.json"), serde_json::json!({"entries": entries}).to_string()).unwrap();
+}
+
+fn costerra_observed(cache: &Path, cwd: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_costerra"))
+        .current_dir(cwd)
+        .arg("--cache-dir")
+        .arg(cache)
+        .args(["--color", "never"])
+        .args(args)
+        .args(["--list-prices", "--no-refresh"])
+        .env("COSTERRA_NO_INSIGHTS", "1")
+        .env_remove("COSTERRA_NO_OBSERVED")
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn rightsize_explains_points_at_the_line_and_never_edits() {
+    let cache = cache_dir();
+    seed_observed(cache.path(), 0.08);
+    let repo = tempfile::tempdir().unwrap();
+    copy_dir(&testdata("terragrunt"), repo.path());
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--rightsize"]);
+    let out = text(&o.stdout);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    for want in [
+        "📐 Rightsizing from observed usage (1)",
+        "prod/app: google_compute_instance.app[*] (4 instances)",
+        "machine_type  n2-standard-8 → n2-standard-4",
+        "Why     CPU use over 30 days: mean 8.0%",
+        "Where   live/prod/app/terragrunt.hcl:15",
+        "- machine_type = \"n2-standard-8\"",
+        "+ machine_type = \"n2-standard-4\"",
+        "Check   https://console.cloud.google.com/compute/instances?project=example-prod",
+        "Cost    $1,012.47 →",
+        "Total after rightsizing $1,291.46 →",
+        "costerra never edits the code",
+    ] {
+        assert!(out.contains(want), "missing {want}: {out}");
+    }
+    // Recommendations stay hidden unless asked for.
+    assert!(!out.contains("💡 Recommendations"), "{out}");
+    let unit = repo.path().join("live/prod/app/terragrunt.hcl");
+    assert!(std::fs::read_to_string(&unit).unwrap().contains("n2-standard-8"));
+
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--rightsize", "-f", "json"]);
+    let j: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    let s = &j["rightsizing"]["suggestions"][0];
+    assert_eq!(s["change"]["to"], "n2-standard-4");
+    assert_eq!(s["locations"][0]["line"], 15);
+    assert!(s["console_url"].as_str().is_some_and(|u| u.starts_with("https://console.cloud.google.com/")), "{s}");
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--rightsize", "-f", "markdown"]);
+    let md = text(&o.stdout);
+    assert!(md.contains("📐 Rightsizing from observed usage (1)") && md.contains("[console](https://console.cloud.google.com/"), "{md}");
+    // Nothing was edited, and there is no option to edit.
+    assert!(std::fs::read_to_string(&unit).unwrap().contains("n2-standard-8"));
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--rightsize", "--apply"]);
+    assert!(!o.status.success() && text(&o.stderr).contains("--apply"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn rightsize_without_oversized_resources_or_observed_usage() {
+    let cache = cache_dir();
+    seed_observed(cache.path(), 0.7);
+    let o = costerra_observed(cache.path(), &testdata(""), &["breakdown", "terragrunt", "--rightsize"]);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(text(&o.stdout).contains("No change needed"), "{}", text(&o.stdout));
+    for bad in [&["--offline"][..], &["--no-observed"]] {
+        let mut args = vec!["breakdown", "terragrunt", "--rightsize"];
+        args.extend(bad);
+        let o = costerra(cache.path(), &testdata(""), &args);
+        assert!(!o.status.success());
+        assert!(text(&o.stderr).contains("--rightsize needs the observed usage"), "{}", text(&o.stderr));
+    }
+}
+
+#[test]
+fn rightsize_suggests_more_capacity_when_saturated() {
+    let cache = cache_dir();
+    seed_observed(cache.path(), 0.95);
+    let repo = tempfile::tempdir().unwrap();
+    copy_dir(&testdata("terragrunt"), repo.path());
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--rightsize", "--recommendations"]);
+    let out = text(&o.stdout);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    for want in [
+        "Upsize n2-standard-8 to n2-standard-16: its CPU is saturated",
+        "machine_type  n2-standard-8 → n2-standard-16",
+        "+ machine_type = \"n2-standard-16\"",
+        "/mo more",
+        "Total after rightsizing $1,291.46 →",
+        "(+$",
+    ] {
+        assert!(out.contains(want), "missing {want}: {out}");
+    }
+    let o = costerra_observed(cache.path(), repo.path(), &["breakdown", "live", "--recommendations", "-f", "markdown"]);
+    assert!(text(&o.stdout).contains("(costs more)"), "{}", text(&o.stdout));
 }

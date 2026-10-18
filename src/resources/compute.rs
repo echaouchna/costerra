@@ -3,7 +3,7 @@
 
 use super::machine::{self, COMPUTE, MachineType, Pricing};
 use super::{Ctx, Spec, usage};
-use crate::cost::{Component, HOURS_PER_MONTH};
+use crate::cost::{CodeChange, Component, HOURS_PER_MONTH};
 use crate::hcl::value::Value;
 use crate::pricing::query::Query;
 
@@ -868,19 +868,54 @@ pub(crate) mod rules {
                     ..spec.clone()
                 };
                 if let Some(s) = ctx.savings_vs(current, total(ctx, &alt)) {
-                    out.push(ctx.rec(
+                    let mut rec = ctx.rec(
                         "compute-rightsize",
                         if s > 100.0 { Severity::Medium } else { Severity::Low },
                         format!("Downsize {} to {cand}", mt.name),
                         format!(
-                            "CPU use over {:.0} days: mean {:.1}%, 95th percentile {:.1}%. Half the vCPUs would still leave headroom. Check memory use first (it needs the Ops Agent to be measured).",
+                            "CPU use over {:.0} days: mean {:.1}%, 95th percentile {:.1}% (suggested below a mean of 20% and a 95th percentile of 35%). Half the vCPUs would still leave headroom. Check memory use first (it needs the Ops Agent to be measured).",
                             c.days,
                             c.mean * 100.0,
                             c.p95 * 100.0
                         ),
                         Some(s),
-                    ));
+                    );
+                    rec.change =
+                        Some(CodeChange { attribute: "machine_type".into(), from: mt.name.clone(), to: cand.clone(), unset: false });
+                    out.push(rec);
                 }
+            }
+        }
+
+        // Upsize: double the vCPUs of a VM whose CPU is saturated.
+        if let Some(c) = cpu.filter(|c| busy && c.days >= 7.0)
+            && !mt.custom
+            && let Some((prefix, _)) = mt.name.rsplit_once('-')
+        {
+            let cand = format!("{prefix}-{}", (mt.vcpus * 2.0) as u32);
+            if machine::parse(&cand).is_some_and(|m| m.family == mt.family) {
+                let alt = VmSpec {
+                    machine: cand.clone(),
+                    disks: spec.disks.clone(),
+                    gpus: spec.gpus.clone(),
+                    image: spec.image.clone(),
+                    ..spec.clone()
+                };
+                let extra = total(ctx, &alt).map(|n| n - current);
+                let mut rec = ctx.rec(
+                    "compute-upsize",
+                    Severity::Medium,
+                    format!("Upsize {} to {cand}: its CPU is saturated", mt.name),
+                    format!(
+                        "CPU use over {:.0} days: mean {:.1}%, 95th percentile {:.1}% (suggested from a 95th percentile of 85%). The VM is short of CPU: twice the vCPUs cost more but remove the bottleneck (or spread the load over more instances).",
+                        c.days,
+                        c.mean * 100.0,
+                        c.p95 * 100.0
+                    ),
+                    extra.map(|e| -e),
+                );
+                rec.change = Some(CodeChange { attribute: "machine_type".into(), from: mt.name.clone(), to: cand, unset: false });
+                out.push(rec);
             }
         }
 

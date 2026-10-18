@@ -93,6 +93,22 @@ pub fn clear() {
 
 static STDERR_COLOR: AtomicBool = AtomicBool::new(false);
 static VERBOSE: AtomicBool = AtomicBool::new(false);
+static DETAILS: AtomicBool = AtomicBool::new(false);
+
+/// `--details`: show every warning and progress note.
+pub fn set_details(on: bool) {
+    DETAILS.store(on, Ordering::Relaxed);
+}
+
+/// Whether secondary messages (price refresh summary…) are shown.
+pub fn details() -> bool {
+    DETAILS.load(Ordering::Relaxed) || VERBOSE.load(Ordering::Relaxed)
+}
+
+/// How many warnings of one kind are printed before "… N more".
+pub fn max_notices() -> usize {
+    if details() { 100 } else { 5 }
+}
 
 pub fn init(stderr_color: bool, verbose: bool) {
     STDERR_COLOR.store(stderr_color, Ordering::Relaxed);

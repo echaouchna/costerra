@@ -15,6 +15,13 @@
 #   COSTERRA_PATH      Path to analyse (default: .)
 #   COSTERRA_ARGS      Extra arguments, e.g. "--fail-increase-percent 20 --usage-file costerra-usage.yml"
 #   COSTERRA_PRICES_MAX_AGE  Re-download prices when the cached catalog is older (default 7d)
+#   COSTERRA_RECOMMENDATIONS Optimization recommendations in the comment
+#                      (--recommendations; default "true", set "false" to leave them out)
+#   COSTERRA_IMPERSONATE_SERVICE_ACCOUNT  Service account to impersonate for the
+#                      Google APIs (prices, observed usage, remote states); the
+#                      job's credentials need roles/iam.serviceAccountTokenCreator on it
+#   COSTERRA_NO_REMOTE_STATE  "true" to not read terraform_remote_state outputs
+#                      from the GCS state buckets
 
 costerra:
   stage: test
@@ -27,6 +34,8 @@ costerra:
     COSTERRA_IMAGE: ghcr.io/echaouchna/costerra:latest
     COSTERRA_PATH: "."
     COSTERRA_PRICES_MAX_AGE: 7d
+    COSTERRA_RECOMMENDATIONS: "true"
+    COSTERRA_IMPERSONATE_SERVICE_ACCOUNT: ""
     COSTERRA_CACHE_DIR: "$CI_PROJECT_DIR/.costerra-cache"
     GIT_DEPTH: 0
   cache:

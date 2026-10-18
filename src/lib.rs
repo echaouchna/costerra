@@ -15,6 +15,7 @@ pub mod profiles;
 pub mod project;
 pub mod recommend;
 pub mod resources;
+pub mod rightsize;
 pub mod tf;
 pub mod usage;
 pub mod util;

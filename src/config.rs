@@ -74,6 +74,11 @@ pub struct Config {
     /// Observed usage of the deployed resources: Cloud Monitoring metrics and
     /// active commitments (default true).
     pub observed_usage: Option<bool>,
+    /// Read `terraform_remote_state` outputs (gcs backend) from the state
+    /// buckets (default true).
+    pub remote_state: Option<bool>,
+    /// Service account to impersonate for Google API calls.
+    pub impersonate_service_account: Option<String>,
     pub usage_file: Option<PathBuf>,
     pub include_free_tier: bool,
     pub exclude_paths: Vec<String>,

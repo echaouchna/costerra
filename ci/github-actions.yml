@@ -8,6 +8,13 @@
 #                     (Workload Identity Federation) before the estimate step.
 #   COSTERRA_IMAGE    (variable, optional) image to run; pin a version tag or
 #                     digest for reproducible results.
+#   COSTERRA_RECOMMENDATIONS  (variable, optional) optimization recommendations
+#                     in the comment (--recommendations); default "true", set
+#                     "false" to leave them out.
+#   COSTERRA_IMPERSONATE_SERVICE_ACCOUNT  (variable, optional) service account to
+#                     impersonate for the Google APIs (prices, observed usage,
+#                     remote states); the workflow's credentials need
+#                     roles/iam.serviceAccountTokenCreator on it.
 #
 # Pull requests from forks get a read-only token: the estimate runs, but the
 # comment cannot be posted. Do not switch to `pull_request_target` to work
@@ -32,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COSTERRA_IMAGE: ${{ vars.COSTERRA_IMAGE || 'ghcr.io/echaouchna/costerra:latest' }}
+      COSTERRA_RECOMMENDATIONS: ${{ vars.COSTERRA_RECOMMENDATIONS || 'true' }}
+      COSTERRA_IMPERSONATE_SERVICE_ACCOUNT: ${{ vars.COSTERRA_IMPERSONATE_SERVICE_ACCOUNT }}
       BASE_REF: ${{ github.base_ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +61,7 @@ jobs:
         run: |
           costerra() {
             docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" \
-              -e HOME=/tmp -e COSTERRA_CACHE_DIR=/work/.costerra-cache -e COSTERRA_API_KEY \
+              -e HOME=/tmp -e COSTERRA_CACHE_DIR=/work/.costerra-cache -e COSTERRA_API_KEY -e COSTERRA_RECOMMENDATIONS -e COSTERRA_IMPERSONATE_SERVICE_ACCOUNT \
               "$COSTERRA_IMAGE" "$@"
           }
           costerra pricing sync --if-older-than 7d

@@ -115,6 +115,10 @@ impl<'a> Evaluator<'a> {
             Expression::TemplateExpr(t) => self.eval_template_expr(t, scope),
             Expression::Variable(v) => self.lookup_var(v.as_str(), scope),
             Expression::Traversal(t) => {
+                // `var.x`, `local.y[k]`…: walk the path by reference, clone only the result.
+                if let Expression::Variable(v) = &t.expr {
+                    return self.traverse_var(v.as_str(), &t.operators, scope);
+                }
                 let base = self.eval_in(&t.expr, scope)?;
                 self.apply_traversal(base, &t.operators, scope)
             }
@@ -189,6 +193,41 @@ impl<'a> Evaluator<'a> {
             Some(v) => Ok(v.clone()),
             None => Ok(Value::Unknown),
         }
+    }
+
+    /// A traversal from a variable, without cloning the containers it goes
+    /// through (`local.x` would otherwise copy every local). Same results as
+    /// `lookup_var` + `apply_traversal`.
+    fn traverse_var(&self, name: &str, ops: &[TraversalOperator], scope: Option<&Scope>) -> EvalResult {
+        let Some(mut cur) = scope.and_then(|s| s.lookup(name)).or_else(|| self.root.get(name)) else {
+            return Ok(Value::Unknown);
+        };
+        for (i, op) in ops.iter().enumerate() {
+            let next = match op {
+                TraversalOperator::GetAttr(id) => match cur {
+                    Value::Map(m) => m.get(id.as_str()),
+                    _ => return get_attr(cur, id.as_str()).and_then(|v| self.apply_traversal(v, &ops[i + 1..], scope)),
+                },
+                TraversalOperator::Index(e) => {
+                    let idx = self.eval_in(e, scope)?;
+                    match index_ref(cur, &idx)? {
+                        Some(v) => Some(v),
+                        None => return Ok(Value::Unknown),
+                    }
+                }
+                TraversalOperator::LegacyIndex(n) => match index_ref(cur, &Value::Number(*n as f64))? {
+                    Some(v) => Some(v),
+                    None => return Ok(Value::Unknown),
+                },
+                TraversalOperator::AttrSplat | TraversalOperator::FullSplat => return self.apply_traversal(cur.clone(), &ops[i..], scope),
+            };
+            match next {
+                Some(v) => cur = v,
+                // A missing attribute is unknown (as in `get_attr`).
+                None => return Ok(Value::Unknown),
+            }
+        }
+        Ok(cur.clone())
     }
 
     fn eval_try(&self, args: &[Expression], scope: Option<&Scope>) -> EvalResult {
@@ -460,6 +499,25 @@ fn get_attr(v: &Value, name: &str) -> EvalResult {
         Value::Null => err(format!("attempt to get attribute '{name}' from null")),
         // Splatting over lists of objects without [*] (legacy): unknown
         _ => err(format!("cannot access attribute '{name}' on {}", v.type_name())),
+    }
+}
+
+/// `index` by reference: `Ok(None)` for an unknown index or value.
+fn index_ref<'v>(v: &'v Value, idx: &Value) -> Result<Option<&'v Value>, EvalError> {
+    if idx.is_unknown() {
+        return Ok(None);
+    }
+    match v {
+        Value::List(l) => {
+            let i = idx.as_f64().ok_or_else(|| EvalError("list index must be number".into()))?;
+            l.get(i as usize).map(Some).ok_or_else(|| EvalError(format!("index {i} out of range")))
+        }
+        Value::Map(m) => {
+            let k = idx.to_interp_string().ok_or_else(|| EvalError("invalid map key".into()))?;
+            m.get(&k).map(Some).ok_or_else(|| EvalError(format!("key '{k}' not found")))
+        }
+        Value::Unknown => Ok(None),
+        _ => err(format!("cannot index {}", v.type_name())),
     }
 }
 
