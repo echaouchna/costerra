@@ -28,6 +28,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      # Version the stylesheets and the script by commit: a browser (or the
+      # Pages CDN, 10 min) must not pair a new page with an old styles.css.
+      - name: Version assets
+        run: |
+          v="${GITHUB_SHA::8}"
+          sed -i -E "s#(href|src)=\"(styles\.css|fonts\.css|main\.js)\"#\1=\"\2?v=$v\"#g" site/index.html
+          grep -E "(styles|fonts)\.css\?v=|main\.js\?v=" site/index.html
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
