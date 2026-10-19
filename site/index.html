@@ -42,9 +42,10 @@
         <a href="#how"><i>02</i>Method</a>
         <a href="#savings"><i>03</i>Savings</a>
         <a href="#rightsizing"><i>04</i>Rightsizing</a>
-        <a href="#ci"><i>05</i>CI</a>
-        <a href="#coverage"><i>06</i>Coverage</a>
-        <a href="#install"><i>07</i>Install</a>
+        <a href="#billing"><i>05</i>Billing</a>
+        <a href="#ci"><i>06</i>CI</a>
+        <a href="#coverage"><i>07</i>Coverage</a>
+        <a href="#install"><i>08</i>Install</a>
       </nav>
       <div class="nav-cta">
         <a class="nav-gh" href="https://github.com/echaouchna/costerra" target="_blank" rel="noopener">
@@ -436,12 +437,85 @@
       </div>
     </section>
 
-    <!-- ───────────── §05 CI ───────────── -->
+    <!-- ───────────── §05 Billing ───────────── -->
+    <section class="sec" id="billing">
+      <div class="container">
+        <header class="sec-head reveal">
+          <div>
+            <span class="sec-mark">§ 05 — Billing</span>
+            <h2>What your stack <em>really</em> cost, week by week.</h2>
+          </div>
+          <p>With <code>--billing-history</code>, costerra charts the last 13 weeks of actual billing of the resources declared in your code (not everything else running in the same projects), stacked by service, with the estimate drawn across it. Same chart in the terminal, in JSON, and as a Mermaid chart in merge request comments.</p>
+        </header>
+
+        <div class="install-grid">
+          <ol class="steps reveal">
+            <li>
+              <span class="step-n">i.</span>
+              <div><b>Your stack only</b><small>Costs are matched to the resources of the code: by name (VMs, disks, buckets, Cloud SQL, Cloud Run, datasets…), by instance name prefix for managed instance groups, by cluster label for GKE nodes. The chart says how many resources were found and lists the ones without cost.</small></div>
+            </li>
+            <li>
+              <span class="step-n">ii.</span>
+              <div><b>Real money</b><small>Net of credits (sustained and committed use discounts, promotions, free tier), in the currency of the billing account, from the detailed Cloud Billing export to BigQuery.</small></div>
+            </li>
+            <li>
+              <span class="step-n">iii.</span>
+              <div><b>Found for you</b><small>The export table is discovered across your organization with Cloud Asset Inventory, even in a separate billing project, or set with <code>--billing-export-table</code>.</small></div>
+            </li>
+            <li>
+              <span class="step-n">iv.</span>
+              <div><b>Against the estimate</b><small>Last full week vs the week before, last 4 weeks vs the 4 before, and how far the estimate of the code is from what was billed.</small></div>
+            </li>
+          </ol>
+          <div class="code-card reveal">
+            <div class="code-head"><span>costerra breakdown live/ --billing-history</span></div>
+            <div class="bill" role="img" aria-label="Stacked weekly bar chart of the actual billing over 13 weeks, rising from $2.0k to $2.9k a week, with the estimate of $2.1k a week drawn as a dashed line">
+              <p class="bill-title"><span class="a">📊 Actual billing, last 13 weeks</span> <span class="c">(net of credits, USD)</span></p>
+              <p class="c">   resources of the code only: 29 of 31 found in the billing</p>
+              <div class="bill-plot" aria-hidden="true">
+                <div class="bill-y"><span>$3.0k</span><span>$1.5k</span><span>$0</span></div>
+                <div class="bars">
+                  <div class="bill-est" style="bottom:69.8%"></div>
+                <div style="--v:68.0%;--i:0"><span>2.0k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>27</em><u>Jul</u></div>
+                <div style="--v:70.3%;--i:1"><span>2.1k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>3</em><u>Aug</u></div>
+                <div style="--v:74.3%;--i:2"><span>2.2k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>10</em><u></u></div>
+                <div style="--v:77.0%;--i:3"><span>2.3k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>17</em><u></u></div>
+                <div style="--v:79.3%;--i:4"><span>2.4k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>24</em><u></u></div>
+                <div style="--v:80.7%;--i:5"><span>2.4k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>31</em><u></u></div>
+                <div style="--v:82.3%;--i:6"><span>2.5k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>7</em><u>Sep</u></div>
+                <div style="--v:85.3%;--i:7"><span>2.6k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>14</em><u></u></div>
+                <div style="--v:87.0%;--i:8"><span>2.6k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>21</em><u></u></div>
+                <div style="--v:92.0%;--i:9"><span>2.8k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>28</em><u></u></div>
+                <div style="--v:93.7%;--i:10"><span>2.8k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>5</em><u>Oct</u></div>
+                <div style="--v:95.7%;--i:11"><span>2.9k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>12</em><u></u></div>
+                <div class="now" style="--v:63.7%;--i:12"><span>1.9k</span><b><i></i><i></i><i></i><i></i><i></i><i></i></b><em>now</em><u></u></div>
+                </div>
+              </div>
+              <ul class="bill-legend" aria-hidden="true">
+                <li><i></i>Compute Engine<b>$14,715.00</b><small>46.8%</small></li>
+                <li><i></i>Cloud SQL<b>$6,854.40</b><small>21.8%</small></li>
+                <li><i></i>Kubernetes Engine<b>$4,887.00</b><small>15.5%</small></li>
+                <li><i></i>Cloud Storage<b>$2,461.50</b><small>7.8%</small></li>
+                <li><i></i>Networking<b>$1,474.20</b><small>4.7%</small></li>
+                <li><i></i>Other services<b>$1,062.00</b><small>3.4%</small></li>
+                <li class="est"><i></i>estimate of the code: $9,100.00/month ≈ $2,094.25/week</li>
+              </ul>
+<pre class="bill-sum">Total over 13 weeks: <span class="a">$31,454.10</span>
+Last full week (Oct 12): $2,870.70, <span class="r">▲ 3.7%</span> vs the week before
+Last 4 weeks vs the 4 before: <span class="r">▲ 12.0%</span>
+The estimate of the code is 27.0% below the last full week</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────── §06 CI ───────────── -->
     <section class="sec sec-dark" id="ci">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 05 — Continuous integration</span>
+            <span class="sec-mark">§ 06 — Continuous integration</span>
             <h2>A cost review on every pull request, <em>with a budget that can say no.</em></h2>
           </div>
           <p>costerra comments on each pull request with the cost diff, then updates that same comment on every push. Policies set the exit code, so a budget can block a merge. <code>diff --base</code> reads the base ref with <code>git archive</code> and never writes to the repository.</p>
@@ -546,12 +620,12 @@
       </div>
     </section>
 
-    <!-- ───────────── §06 Coverage ───────────── -->
+    <!-- ───────────── §07 Coverage ───────────── -->
     <section class="sec" id="coverage">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 06 — Coverage</span>
+            <span class="sec-mark">§ 07 — Coverage</span>
             <h2><span data-count="122">0</span> priced resource types, <em>and about 300 more known to be free.</em></h2>
           </div>
           <p>From Compute Engine to Vertex AI. Run <code>costerra resources</code> to list every supported type and its usage keys.</p>
@@ -580,12 +654,12 @@
       </div>
     </section>
 
-    <!-- ───────────── §07 Install ───────────── -->
+    <!-- ───────────── §08 Install ───────────── -->
     <section class="sec" id="install">
       <div class="container">
         <header class="sec-head reveal">
           <div>
-            <span class="sec-mark">§ 07 — Install</span>
+            <span class="sec-mark">§ 08 — Install</span>
             <h2>Up and running <em>in under a minute.</em></h2>
           </div>
           <p>A crate on crates.io, a Homebrew formula, prebuilt binaries for Linux and macOS, a small multi-arch container image, or a build from source.</p>

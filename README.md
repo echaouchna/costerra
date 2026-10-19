@@ -476,6 +476,52 @@ big billing account, billed as a BigQuery query), hence the cache. Results are c
 for an hour (the export is updated a few times a day). When the billing
 cannot be read, a warning says why and the rest of the report is unchanged.
 
+### Permissions for `--billing-history`
+
+All read-only. What is missing is reported in the warning, and the rest of
+the report is unchanged.
+
+**Once, by a billing administrator: enable the detailed export.** In the
+console, *Billing* > *Billing export* > *BigQuery export* > **Detailed usage
+cost** > *Edit settings*, pick a project and a dataset. This needs Billing
+Account Administrator (`roles/billing.admin`) on the billing account and
+BigQuery User (`roles/bigquery.user`) on that project. Costs are exported
+from that day on (and for the current and previous month of some services):
+the chart fills up over time.
+
+**Reading the billing (always needed):**
+
+| What | Role | On |
+|---|---|---|
+| Read the export table | BigQuery Data Viewer (`roles/bigquery.dataViewer`): `bigquery.tables.get`, `bigquery.tables.getData` | the export dataset (or its project) |
+| Run the query | BigQuery Job User (`roles/bigquery.jobUser`): `bigquery.jobs.create`, with the BigQuery API enabled | the project the query runs in: the quota project (`--quota-project`, `quota_project:`, `GOOGLE_CLOUD_QUOTA_PROJECT`, ADC `quota_project_id`), otherwise the project of the table. The query is billed there. |
+
+**Finding the table (not needed with `--billing-export-table`):**
+
+| What | Role | On |
+|---|---|---|
+| Name of the table (it ends with the billing account) | Browser (`roles/browser`) or Viewer: `resourcemanager.projects.get` | the projects of the code |
+| Organization of the projects | Browser: `resourcemanager.projects.get` (`getAncestry`) | the projects of the code |
+| Search the organization (fast path) | Cloud Asset Viewer (`roles/cloudasset.viewer`): `cloudasset.assets.searchAllResources`, with the Cloud Asset API (`cloudasset.googleapis.com`) enabled in the quota project | the organization |
+| Search the BigQuery projects (fallback) | BigQuery Metadata Viewer (`roles/bigquery.metadataViewer`): `bigquery.datasets.get`, `bigquery.tables.list` | the project of the export dataset |
+
+For a CI service account, for example:
+
+```sh
+SA=costerra@ci-project.iam.gserviceaccount.com
+# read the export (dataset-level grant)
+bq add-iam-policy-binding --member="serviceAccount:$SA" --role=roles/bigquery.dataViewer billing-project:billing_dataset
+# run the query, in the quota project
+gcloud projects add-iam-policy-binding ci-project --member="serviceAccount:$SA" --role=roles/bigquery.jobUser
+gcloud services enable bigquery.googleapis.com cloudasset.googleapis.com --project ci-project
+# optional, to find the table: or set COSTERRA_BILLING_EXPORT_TABLE instead
+gcloud organizations add-iam-policy-binding "$ORG_ID" --member="serviceAccount:$SA" --role=roles/cloudasset.viewer
+```
+
+Setting `billing_export_table:` in `costerra.yml` (or
+`COSTERRA_BILLING_EXPORT_TABLE`) skips the discovery: only the two roles of
+the first table are then needed.
+
 It works with `--format json` (`billing_history` key) and `--format
 markdown` (a Mermaid bar chart, rendered by GitHub and GitLab, and the weeks
 per service). It cannot be used with `--offline`.
@@ -751,7 +797,7 @@ skipped (costerra never fails because of it, and caches the refusal for
 | BigQuery dataset sizes, without project-level access (fallback) | BigQuery tables API (`tables.list`, `tables.get`; no query job) | BigQuery Metadata Viewer (`roles/bigquery.metadataViewer`) | each dataset |
 | [Google recommendations](#usage-based-recommendations-google-cloud-recommender) for resources | Recommender (`recommender.googleapis.com`) | Recommender Viewer (`roles/recommender.viewer`) | the projects |
 | Google commitment recommendations for the billing account | Recommender | Billing Account Viewer (`roles/billing.viewer`), as for contract prices | the billing account |
-| [Actual billing](#actual-billing---billing-history) (`--billing-history` only) | BigQuery (`bigquery.googleapis.com`), `jobs.query` on the Cloud Billing export table | BigQuery Data Viewer (`roles/bigquery.dataViewer`) on the export dataset, and BigQuery Job User (`roles/bigquery.jobUser`) on the project the query runs in; finding the table: Cloud Asset Viewer (`roles/cloudasset.viewer`) on the organization (Cloud Asset API enabled in the quota project), or BigQuery Metadata Viewer on the export dataset | the export dataset |
+| [Actual billing](#actual-billing---billing-history) (`--billing-history` only) | BigQuery (`bigquery.googleapis.com`), `jobs.query` on the detailed Cloud Billing export table | BigQuery Data Viewer (`roles/bigquery.dataViewer`) on the export dataset, and BigQuery Job User (`roles/bigquery.jobUser`) on the project the query runs in; finding the table: Cloud Asset Viewer (`roles/cloudasset.viewer`) on the organization, or BigQuery Metadata Viewer on the export dataset. Details: [Permissions for `--billing-history`](#permissions-for---billing-history) | the export dataset |
 
 With user credentials, the Recommender and Cloud Monitoring APIs need a quota
 project where they are enabled: `--quota-project`, `quota_project:`,

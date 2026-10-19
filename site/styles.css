@@ -434,6 +434,56 @@ pre .g { color: #9ad48f; }
 .footer-legal p { margin: 0; max-width: 680px; }
 
 /* ───────────── Responsive ───────────── */
+/* ── §05 Billing: the --billing-history chart, in the terminal colors ── */
+.bill { padding: 18px 20px 20px; font: .8rem/1.6 var(--mono); color: #d8d2c4; }
+.bill p { margin: 0; white-space: pre; }
+.bill .a { color: var(--paper-3); font-weight: 600; }
+.bill .c { color: #8f897c; }
+.bill .r { color: #ff6b5a; font-weight: 600; }
+.bill-title { margin-bottom: 2px !important; }
+.bill-plot { display: grid; grid-template-columns: auto 1fr; gap: 8px; margin: 26px 0 44px; }
+.bill-y { display: flex; flex-direction: column; justify-content: space-between; height: 200px; font-size: .68rem; color: #8f897c; text-align: right; }
+.bill-y span { line-height: 1; transform: translateY(-50%); }
+.bill-y span:last-child { transform: translateY(50%); }
+.bars { position: relative; display: flex; align-items: flex-end; gap: 5px; height: 200px; padding: 0 4px; border-left: 1px solid #5a554b; border-bottom: 1px solid #5a554b; }
+.bars > div { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.bars b { display: flex; flex-direction: column-reverse; height: var(--v); transform-origin: bottom; transition: transform 1s var(--ease); transition-delay: calc(var(--i) * 45ms); }
+.reveal:not(.in) .bars b { transform: scaleY(0); }
+.bars i { display: block; }
+.bars i:nth-child(1) { flex: 46.8; background: #ff875f; }
+.bars i:nth-child(2) { flex: 21.8; background: #5fafd7; }
+.bars i:nth-child(3) { flex: 15.5; background: #87d787; }
+.bars i:nth-child(4) { flex: 7.8; background: #d7af5f; }
+.bars i:nth-child(5) { flex: 4.7; background: #af87d7; }
+.bars i:nth-child(6) { flex: 3.4; background: #8a8a8a; }
+.bars .now b { opacity: .5; }
+.bars span { position: absolute; left: -4px; right: -4px; bottom: calc(var(--v) + 4px); font-size: .62rem; color: #8f897c; text-align: center; }
+.bars em, .bars u { position: absolute; left: -4px; right: -4px; top: calc(100% + 5px); font: .66rem var(--mono); font-style: normal; text-decoration: none; color: #8f897c; text-align: center; }
+.bars u { top: calc(100% + 21px); text-align: left; left: 0; }
+.bars .now em { color: var(--paper-3); }
+.bars > .bill-est { position: absolute; left: 0; right: 0; height: 0; z-index: 1; border-top: 1.5px dashed #87d7ff; pointer-events: none; }
+.bill-legend { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 2px; font-size: .74rem; }
+.bill-legend li { display: grid; grid-template-columns: 22px 1fr auto 56px; align-items: center; gap: 8px; }
+.bill-legend li i { width: 16px; height: 9px; }
+.bill-legend b { font-weight: 400; color: var(--paper-3); }
+.bill-legend small { color: #8f897c; text-align: right; font-size: inherit; }
+.bill-legend li:nth-child(1) i { background: #ff875f; }
+.bill-legend li:nth-child(2) i { background: #5fafd7; }
+.bill-legend li:nth-child(3) i { background: #87d787; }
+.bill-legend li:nth-child(4) i { background: #d7af5f; }
+.bill-legend li:nth-child(5) i { background: #af87d7; }
+.bill-legend li:nth-child(6) i { background: #8a8a8a; }
+.bill-legend li.est { grid-template-columns: 22px 1fr; color: #8f897c; }
+.bill-legend li.est i { height: 0; border-top: 1.5px dashed #87d7ff; }
+.code-card .bill-sum { padding: 0; font-size: .76rem; line-height: 1.7; white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .bill { padding: 14px 12px 16px; }
+  .bill p { white-space: normal; }
+  .bars { gap: 3px; }
+  .bars span { display: none; }
+  .bars em { font-size: .58rem; }
+}
+
 @media (max-width: 1100px) {
   .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 56px; }
   .hero-visual { width: min(440px, 100%); }
@@ -494,4 +544,5 @@ pre .g { color: #9ad48f; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
   .reveal { opacity: 1; transform: none; }
+  .bars b { transform: none !important; }
 }
