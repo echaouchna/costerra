@@ -6,6 +6,25 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-19
+
+### Changed
+- Google Cloud Recommender: only the recommendations about the code are
+  shown. Recommendations about other resources of the same projects (VMs,
+  disks, IPs, Cloud SQL instances… that the code does not manage) are left
+  out, instead of being listed under "From your cloud usage". Billing-account
+  commitments are kept for the regions and machine families of the VMs of
+  the code (resource-based) and for the services it uses (spend-based); the
+  spend-based recommender is only queried when the code has such services,
+  and resource-based commitments only in the regions with Compute Engine
+  capacity. A note (`--details`) says how many were left out.
+- Google recommendations are matched to more resources of the code: the VMs
+  of a managed instance group (`<base_instance_name>-xxxx`) to the group,
+  and the boot disk of a VM to the VM.
+
+### Fixed
+- The same commitment recommendation for several regions was shown once.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added
@@ -256,7 +275,8 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/echaouchna/costerra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/echaouchna/costerra/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/echaouchna/costerra/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/echaouchna/costerra/compare/v0.2.0...v0.3.0

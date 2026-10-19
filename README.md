@@ -550,9 +550,16 @@ recommendation replaces the advice for that VM, disk or IP, and Google
 commitment recommendations for the billing account replace costerra's
 commitment advice in that region.
 
-Recommendations are matched to the Terraform resources they concern. Others, such as billing-account commitments,
-are shown in a "☁️ From your cloud usage" section, with 1-year and 3-year
-options merged. Results are cached for 6 hours and fetched in parallel with
+Only the recommendations about the code are shown. They are matched to the
+Terraform resources they concern (by project, location and name; the VMs of
+a managed instance group to the group, a boot disk to its VM), and
+recommendations about other resources of the same projects are left out.
+Billing-account commitments are shown in a "☁️ From your cloud usage"
+section, with 1-year and 3-year options merged, when they concern the code:
+resource-based commitments for a region and a machine family of its VMs,
+spend-based commitments for a service it uses (Cloud SQL, Cloud Run,
+Memorystore, GKE, Compute…). With `--details`, a note says how many
+recommendations were left out. Results are cached for 6 hours and fetched in parallel with
 pricing (2.5 s deadline), so runs stay instant.
 
 The Recommender API needs a quota project with the API enabled when you use user

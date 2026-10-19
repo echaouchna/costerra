@@ -2,7 +2,10 @@
 //! observed usage (rightsizing, idle resources, commitments…).
 //!
 //! Results are cached (6 h) so that runs stay instant, and matched to the
-//! resources of the analysed code when possible.
+//! resources of the analysed code. Only what concerns the code is kept:
+//! recommendations about other resources of the same projects are left out,
+//! and billing-account commitments are kept for the regions, machine
+//! families and services the code uses.
 
 use crate::cost::{Basis, Recommendation, Report, Severity};
 use crate::pricing::sync::{Auth, resolve_auth};
@@ -74,6 +77,32 @@ fn recommenders_for(rtype: &str) -> &'static [(&'static str, Loc)] {
     }
 }
 
+/// Resources that run Compute Engine capacity (what resource-based commitments cover).
+const CAPACITY: &[&str] = &[
+    "google_compute_instance",
+    "google_compute_instance_template",
+    "google_compute_region_instance_template",
+    "google_compute_instance_group_manager",
+    "google_compute_region_instance_group_manager",
+    "google_container_cluster",
+    "google_container_node_pool",
+];
+
+/// Services of spend-based commitments, as named in Google's recommendations,
+/// and the Terraform type prefixes of their resources.
+const SPEND_BASED: &[(&str, &[&str])] = &[
+    ("cloud sql", &["google_sql_"]),
+    ("cloud run", &["google_cloud_run"]),
+    ("cloud functions", &["google_cloudfunctions"]),
+    ("memorystore", &["google_redis_", "google_memcache_"]),
+    ("spanner", &["google_spanner_"]),
+    ("alloydb", &["google_alloydb_"]),
+    ("bigtable", &["google_bigtable_"]),
+    ("kubernetes", &["google_container_"]),
+    ("gke", &["google_container_"]),
+    ("compute", &["google_compute_instance", "google_compute_region_instance", "google_container_"]),
+];
+
 #[derive(Clone, Copy)]
 enum Loc {
     Zone,
@@ -88,7 +117,9 @@ fn region_of(zone_or_region: &str) -> String {
 /// Recommender calls needed for the resources of these projects.
 pub fn gcp_queries(sets: &[&[Project]], billing_account: Option<&str>) -> Vec<Query> {
     let mut out: BTreeSet<Query> = BTreeSet::new();
+    // Regions with Compute Engine capacity of the code: where commitments can apply.
     let mut regions: BTreeSet<String> = BTreeSet::new();
+    let mut spend_based = false;
     for r in sets.iter().flat_map(|s| s.iter()).flat_map(|p| p.resources.iter()) {
         let Some(project) = r.attrs.get("project").and_then(|v| v.as_str()).or(r.provider.project.as_deref()) else { continue };
         if project.starts_with(crate::REF_PREFIX) || project.contains('/') {
@@ -102,9 +133,12 @@ pub fn gcp_queries(sets: &[&[Project]], billing_account: Option<&str>) -> Vec<Qu
             .map(str::to_string)
             .or_else(|| zone.map(region_of))
             .or_else(|| r.provider.region.clone());
-        if let Some(rg) = &region {
+        if let Some(rg) = &region
+            && CAPACITY.contains(&r.rtype.as_str())
+        {
             regions.insert(rg.clone());
         }
+        spend_based |= SPEND_BASED.iter().any(|(_, prefixes)| prefixes.iter().any(|p| r.rtype.starts_with(p)));
         for (rec, loc) in recommenders_for(&r.rtype) {
             let location = match loc {
                 Loc::Zone => zone.map(str::to_string),
@@ -124,11 +158,13 @@ pub fn gcp_queries(sets: &[&[Project]], billing_account: Option<&str>) -> Vec<Qu
                 recommender: "google.compute.commitment.UsageCommitmentRecommender",
             });
         }
-        out.insert(Query {
-            parent: format!("billingAccounts/{ba}"),
-            location: "global".into(),
-            recommender: "google.cloudbilling.commitment.SpendBasedCommitmentRecommender",
-        });
+        if spend_based {
+            out.insert(Query {
+                parent: format!("billingAccounts/{ba}"),
+                location: "global".into(),
+                recommender: "google.cloudbilling.commitment.SpendBasedCommitmentRecommender",
+            });
+        }
     }
     out.into_iter().take(MAX_QUERIES).collect()
 }
@@ -467,15 +503,19 @@ fn merge_commitments(insights: Vec<Insight>) -> Vec<Insight> {
 
 /// Attach insights to the report: matched to resources when possible,
 /// otherwise listed as external recommendations.
-pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>, notes: Vec<String>) {
+pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>, mut notes: Vec<String>) {
     let insights = merge_commitments(insights);
+    let stack = StackUse::of(projects);
+    // Recommendations left out: about other resources, and commitments for what the code does not use.
+    let (mut other_resources, mut other_commitments) = (0, 0);
     let mut seen = BTreeSet::new();
     // (project, address, recommender) of Google recommendations matched to the code.
     let mut superseded: Vec<(String, String, String)> = vec![];
     // Regions where Google recommends commitments for the billing account.
     let mut commitment_regions: BTreeSet<String> = BTreeSet::new();
     for ins in insights {
-        let key = format!("{}|{}|{}", ins.source, ins.title, ins.resources.join(","));
+        // The same commitment advice can be given for several regions.
+        let key = format!("{}|{}|{}|{}", ins.source, ins.title, ins.resources.join(","), ins.location.as_deref().unwrap_or_default());
         if !seen.insert(key) {
             continue;
         }
@@ -488,9 +528,20 @@ pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>,
                     }
                     let Some((svc, project, coll, name)) = parse_gcp_name(res) else { return false };
                     let rproject = r.attrs.get("project").and_then(|v| v.as_str()).or(r.provider.project.as_deref());
-                    types_for_collection(&svc, &coll).contains(&r.rtype.as_str())
-                        && r.attrs.get("name").and_then(|v| v.as_str()) == Some(name.as_str())
-                        && rproject.is_none_or(|rp| rp == project)
+                    if rproject.is_some_and(|rp| rp != project) {
+                        return false;
+                    }
+                    let attr = |k: &str| r.attrs.get(k).and_then(|v| v.as_str());
+                    let rtype = r.rtype.as_str();
+                    match (svc.as_str(), coll.as_str()) {
+                        // A VM of a managed instance group of the code: `<base_instance_name>-xxxx`.
+                        ("compute", "instances") if rtype.ends_with("instance_group_manager") => {
+                            attr("base_instance_name").is_some_and(|b| name.strip_prefix(b).is_some_and(|rest| rest.starts_with('-')))
+                        }
+                        // The boot disk of a VM of the code is named after it.
+                        ("compute", "disks") if rtype == "google_compute_instance" => attr("name") == Some(name.as_str()),
+                        _ => types_for_collection(&svc, &coll).contains(&rtype) && attr("name") == Some(name.as_str()),
+                    }
                 });
                 if hit {
                     if let Some(pr) = report.projects.iter_mut().find(|x| x.name == projects[pi].name) {
@@ -514,6 +565,15 @@ pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>,
             }
         }
         if !matched {
+            let account_level = ins.resources.iter().any(|r| r.contains("billingAccounts/")) || ins.kind.contains("commitment");
+            if !account_level {
+                other_resources += 1;
+                continue;
+            }
+            if !stack.concerns(&ins) {
+                other_commitments += 1;
+                continue;
+            }
             let scope = ins
                 .resources
                 .first()
@@ -547,11 +607,83 @@ pub fn attach(report: &mut Report, projects: &[Project], insights: Vec<Insight>,
             }
         }
     }
+    if other_resources > 0 {
+        notes.push(format!(
+            "Google Cloud Recommender: {other_resources} recommendations about resources that are not in this code (other resources of the same projects) were left out"
+        ));
+    }
+    if other_commitments > 0 {
+        notes.push(format!(
+            "Google Cloud Recommender: {other_commitments} commitment recommendations of the billing account for regions, machine families or services this code does not use were left out"
+        ));
+    }
     drop_superseded(report, &superseded, &commitment_regions);
     report.potential_savings =
         crate::cost::potential_savings(report.projects.iter().flat_map(|p| p.recommendations.iter().map(move |r| (p.name.as_str(), r))));
     report.external_recommendations.sort_by(|a, b| b.monthly_savings.unwrap_or(0.0).total_cmp(&a.monthly_savings.unwrap_or(0.0)));
     report.insight_notes.extend(notes);
+}
+
+/// What the code runs, to keep the billing-account commitments that concern it.
+#[derive(Debug, Default)]
+struct StackUse {
+    /// (region, machine family) of the Compute Engine capacity of the code;
+    /// `None` when unknown (any region or family).
+    compute: Vec<(Option<String>, Option<String>)>,
+    /// Resource types of the code.
+    types: BTreeSet<String>,
+}
+
+/// `N2D` for `n2d-standard-4`; custom machine types are N1.
+fn machine_family(machine_type: &str) -> Option<String> {
+    let f = machine_type.rsplit('/').next()?.split('-').next()?.to_uppercase();
+    match f.as_str() {
+        "" => None,
+        "CUSTOM" => Some("N1".into()),
+        _ => Some(f),
+    }
+}
+
+impl StackUse {
+    fn of(projects: &[Project]) -> StackUse {
+        let mut s = StackUse::default();
+        for r in projects.iter().flat_map(|p| p.resources.iter()) {
+            s.types.insert(r.rtype.clone());
+            // The machines of an instance group are described by its template.
+            if !CAPACITY.contains(&r.rtype.as_str()) || r.rtype.ends_with("instance_group_manager") {
+                continue;
+            }
+            let attr = |k: &str| r.attrs.get(k).and_then(|v| v.as_str()).filter(|v| !v.starts_with(crate::REF_PREFIX));
+            let place =
+                attr("zone").or(attr("region")).or(attr("location")).or(r.provider.zone.as_deref()).or(r.provider.region.as_deref());
+            // Templates are regionless: their VMs can run anywhere.
+            let region = if r.rtype.contains("template") && attr("region").is_none() { None } else { place.map(region_of) };
+            s.compute.push((region, attr("machine_type").and_then(machine_family)));
+        }
+        s
+    }
+
+    /// Whether a billing-account commitment recommendation concerns the code:
+    /// resource-based ones for a region and a machine family of its VMs,
+    /// spend-based ones for a service it uses.
+    fn concerns(&self, ins: &Insight) -> bool {
+        static FAMILY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b([A-Z]\d+[A-Z]?)\b").expect("valid regex"));
+        let text = format!("{} {}", ins.title, ins.detail.as_deref().unwrap_or_default()).to_lowercase();
+        if ins.kind.contains("spendbased") {
+            return SPEND_BASED
+                .iter()
+                .filter(|(service, _)| text.contains(service))
+                .any(|(_, prefixes)| self.types.iter().any(|t| prefixes.iter().any(|p| t.starts_with(p))));
+        }
+        let region = ins.location.as_deref().filter(|l| *l != "global").map(region_of);
+        // GPUs (`NVIDIA_TESLA_T4`) are not machine families.
+        let family = FAMILY.captures(&ins.title).map(|c| c[1].to_string()).filter(|_| !text.contains("gpu"));
+        self.compute.iter().any(|(r, f)| {
+            let region_ok = region.is_none() || r.is_none() || *r == region;
+            let family_ok = family.is_none() || f.is_none() || *f == family;
+            region_ok && family_ok
+        })
+    }
 }
 
 /// costerra rules that a Google recommendation of this recommender replaces
@@ -879,5 +1011,60 @@ mod tests {
         assert!(c.address.starts_with("billing account B-A-1 (all projects)"), "{}", c.address);
         assert_eq!(report.insight_notes, vec!["a note".to_string()]);
         assert!(report.potential_savings > 0.0);
+    }
+
+    #[test]
+    fn only_recommendations_about_the_code_are_kept() {
+        let (projects, mut report) = basic();
+        let ba = "//cloudbilling.googleapis.com/billingAccounts/B-A-1";
+        let vm = |name: &str| format!("//compute.googleapis.com/projects/example-dev/zones/europe-west1-b/instances/{name}");
+        let disk = |name: &str| format!("//compute.googleapis.com/projects/example-dev/zones/europe-west1-b/disks/{name}");
+        let spend = "cloudbilling-commitment-spendbasedcommitmentrecommender";
+        let usage = "compute-commitment-usagecommitmentrecommender";
+        let insights = vec![
+            // A VM of the managed instance group `web` of the code.
+            insight("compute-instance-machinetyperecommender", "Save cost by changing machine type", &vm("web-x1z2"), None, 12.0),
+            // The boot disk of the VM `api` of the code.
+            insight(
+                "compute-disk-idleresourcerecommender",
+                "Save cost by snapshotting and deleting idle disk 'api'",
+                &disk("api"),
+                None,
+                3.0,
+            ),
+            // Resources of the same project that are not in the code.
+            insight("compute-instance-idleresourcerecommender", "Save cost by stopping idle VM 'legacy'", &vm("legacy"), None, 80.0),
+            insight("compute-disk-idleresourcerecommender", "Delete idle disk 'old'", &disk("old"), None, 5.0),
+            insight(
+                "cloudsql-instance-idlerecommender",
+                "Stop idle instance",
+                "//sqladmin.googleapis.com/projects/example-dev/instances/reporting",
+                None,
+                60.0,
+            ),
+            // Commitments: N1 in europe-west1 is used by the code; C3, us-central1 and Cloud SQL are not.
+            insight(usage, "Purchase a 1 year new commitment for N1 cores", ba, Some("europe-west1"), 50.0),
+            insight(usage, "Purchase a 1 year new commitment for C3 cores", ba, Some("europe-west1"), 40.0),
+            insight(usage, "Purchase a 1 year new commitment for N1 cores", ba, Some("us-central1"), 30.0),
+            insight(spend, "Purchase a 1 year Cloud SQL commitment", ba, Some("global"), 20.0),
+            insight(spend, "Purchase a 3 year Compute flexible commitment", ba, Some("global"), 25.0),
+        ];
+        attach(&mut report, &projects, insights, vec![]);
+        let on = |address: &str| report.projects[0].recommendations.iter().filter(|r| r.source == "gcp" && r.address == address).count();
+        assert_eq!(on("google_compute_region_instance_group_manager.web"), 1);
+        assert_eq!(on("module.vm[\"api\"].google_compute_instance.this"), 1);
+        assert_eq!(report.projects.iter().flat_map(|p| &p.recommendations).filter(|r| r.source == "gcp").count(), 2);
+        let titles: Vec<&str> = report.external_recommendations.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, ["Commit to N1 cores", "Purchase a 3 year Compute flexible commitment"]);
+        let notes = report.insight_notes.join("\n");
+        assert!(notes.contains("3 recommendations about resources that are not in this code"), "{notes}");
+        assert!(notes.contains("3 commitment recommendations of the billing account"), "{notes}");
+    }
+
+    #[test]
+    fn machine_families() {
+        assert_eq!(machine_family("n2d-standard-4").as_deref(), Some("N2D"));
+        assert_eq!(machine_family("zones/europe-west1-b/machineTypes/e2-small").as_deref(), Some("E2"));
+        assert_eq!(machine_family("custom-4-8192").as_deref(), Some("N1"));
     }
 }
