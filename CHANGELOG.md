@@ -6,6 +6,38 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
+### Added
+- `--billing-history` (`breakdown` and `diff`): a chart of the actual billing
+  of the resources of the code (the stack only, not the rest of the GCP
+  projects), week by week over the last 3 months (13
+  weeks, the current one in progress), net of credits. In the terminal, a
+  colored bar chart stacked by the 5 most expensive services (the others
+  grouped), with value labels, the weekly equivalent of the estimate as a
+  dashed line, a legend with each service's total and share, and a summary:
+  total, weekly average, last full week vs the week before, last 4 weeks vs
+  the 4 before, and how far the estimate is from the last full week. In
+  Markdown, a Mermaid bar chart (rendered by GitHub and GitLab) and the weeks
+  per service; in JSON, a `billing_history` key. Off unless asked for
+  (`COSTERRA_BILLING_HISTORY=1` also turns it on).
+- The data comes from the detailed usage cost export of Cloud Billing to
+  BigQuery, which names the resource of each cost: costs are kept when their
+  resource is one of the code (by name, by the instance name prefix of
+  managed instance groups, by the GKE cluster label of the nodes). The chart
+  says how many resources of the code were found in the billing and lists
+  the ones without cost. The
+  `gcp_billing_export_resource_v1_<billing account>` table is discovered, even in a
+  separate billing project: Cloud Asset Inventory search over the
+  organization of the projects, then the datasets of the projects visible in
+  BigQuery (billing-like names first). It can also be set with
+  `--billing-export-table` (`COSTERRA_BILLING_EXPORT_TABLE`,
+  `billing_export_table:` in `costerra.yml`). The table found is remembered
+  for 7 days, a fruitless search for 6 hours. Needs BigQuery Data Viewer on the export dataset and
+  BigQuery Job User on the project the query runs in. The result is cached
+  for an hour; when the billing cannot be read, a warning says why and the
+  report is unchanged.
+
 ## [0.3.1] - 2026-10-18
 
 ### Added
@@ -224,7 +256,8 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/echaouchna/costerra/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/echaouchna/costerra/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/echaouchna/costerra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/echaouchna/costerra/compare/v0.1.0...v0.2.0

@@ -27,6 +27,10 @@ and Terragrunt code, written in Rust.
   monthly saving: Spot for non-prod, machine family changes, committed use
   discounts, HA in non-prod, idle IPs and disks, lifecycle policies, cheaper
   regions, and more (`--recommendations`).
+* **Real billing next to the estimate.** `--billing-history` charts what
+  the resources of your code (not the whole projects) were actually billed,
+  week by week over the last 3 months, stacked by service, from the Cloud
+  Billing export to BigQuery.
 * **Rightsizing from real usage.** With access to the metrics, `--rightsize`
   says which resources are oversized or saturated and why, which line of the
   code sets the value, the cost after the change, and links to the console to
@@ -399,6 +403,83 @@ first). The BigQuery billing model can only be changed once every 14 days.
 `--format markdown`. It needs observed usage, so it cannot be used with
 `--offline` or `--no-observed`.
 
+## Actual billing (`--billing-history`)
+
+`--billing-history` (on `breakdown` and `diff`) adds a chart of what the
+resources of the code were really billed (your stack only, not everything
+else running in the same GCP projects), week by week over the last 3 months
+(13 weeks, the current one in progress), stacked by service, with the weekly
+equivalent of the estimate as a dashed line:
+
+```
+$ costerra breakdown live --billing-history
+…
+📊 Actual billing, last 13 weeks (net of credits, USD)
+   resources of the code only: 29 of 31 resources found in the billing
+   no cost found for: acme-prod/acme-tmp, acme-dev/web-cache
+   from acme-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01
+
+                                                      2.8k 2.8k 2.9k
+ $3.0k ┤                               2.5k 2.6k 2.6k ▂▂▂▂ ▂▂▂▂ ▅▅▅▅
+       │           2.2k 2.3k 2.4k 2.4k ▂▂▂▂ ▆▆▆▆ ▇▇▇▇ ████ ████ ████
+       │╌2.0k╌2.1k╌▄▄▄▄╌▄▄▄▄╌▇▇▇▇╌████╌████╌████╌████╌████╌████╌████╌1.9k
+       │ ▅▅▅▅ ████ ████ ████ ████ ████ ████ ████ ████ ████ ████ ████ ▄▄▄▄
+       …
+    $0 └─────────────────────────────────────────────────────────────────
+         27   3    10   17   24   31   7    14   21   28   5    12  now
+        Jul  Aug                      Sep                 Oct
+
+   ██ Compute Engine     $14,715.00   46.8%
+   ██ Cloud SQL           $6,854.40   21.8%
+   …
+   ╌╌ estimate of the code: $9,100.00/month ≈ $2,094.25/week
+
+   Total over 13 weeks: $31,454.10
+   Last full week (Oct 12): $2,870.70, ▲ 3.7% vs the week before
+   Last 4 weeks vs the 4 before: ▲ 12.0%
+```
+
+In a terminal each service has its own color. Costs are net of credits
+(sustained use and committed use discounts, promotions, free tier) and in the
+currency of the billing account.
+
+The data comes from the [Cloud Billing export to BigQuery](https://cloud.google.com/billing/docs/how-to/export-data-bigquery),
+**detailed usage cost** export (`gcp_billing_export_resource_v1_…`), which
+must be enabled on the billing account: only it names the resource of each
+cost (the standard export stops at the project). A cost is counted when its
+resource is one of the code:
+
+* by name (`resource.name`): VMs, disks, buckets, Cloud SQL instances, Cloud
+  Run services, BigQuery datasets and the other named resources;
+* by name prefix for the VMs of managed instance groups (`base_instance_name`);
+* by the `goog-k8s-cluster-name` label for the nodes of GKE clusters.
+
+Costs without a resource (network egress billed to the project, support…)
+and the resources of the projects that are not in the code are left out. The
+chart says how many resources of the code were found in the billing and
+lists the ones without cost; resources whose name is only known after apply
+cannot be looked up and are counted apart.
+
+costerra finds the `gcp_billing_export_resource_v1_<billing account>` table by
+itself, even in a separate billing project: it searches the organization of
+the projects with Cloud Asset Inventory, then the datasets of the projects you
+can see in BigQuery (the quota project, the projects of the code, then the
+ones named like `billing`, `finops` or `cost` first). The table found is
+remembered for 7 days; a search without result is not repeated for 6 hours
+and the warning says where costerra looked and what was refused. You can also
+give the table with `--billing-export-table PROJECT.DATASET.TABLE`
+(`COSTERRA_BILLING_EXPORT_TABLE`, `billing_export_table:` in `costerra.yml`).
+One query sums the cost of the resources of the code per week and service;
+it runs in the quota project, or in the project of the table. The detailed
+export is large: the query reads about 13 weeks of it (a few tens of GB on a
+big billing account, billed as a BigQuery query), hence the cache. Results are cached
+for an hour (the export is updated a few times a day). When the billing
+cannot be read, a warning says why and the rest of the report is unchanged.
+
+It works with `--format json` (`billing_history` key) and `--format
+markdown` (a Mermaid bar chart, rendered by GitHub and GitLab, and the weeks
+per service). It cannot be used with `--offline`.
+
 ## Usage-based recommendations (Google Cloud Recommender)
 
 Besides its own rules (static analysis of the code), costerra shows
@@ -512,6 +593,7 @@ recommendations:
   disabled: [region-cheaper]
 observed_usage: true          # read 30 days of Cloud Monitoring metrics and active commitments
 quota_project: my-project     # quota project for the Recommender and Cloud Monitoring APIs
+billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01   # --billing-history (default: discovered)
 policies:
   max_monthly_cost: 50000
   max_increase_percent: 15
@@ -669,6 +751,7 @@ skipped (costerra never fails because of it, and caches the refusal for
 | BigQuery dataset sizes, without project-level access (fallback) | BigQuery tables API (`tables.list`, `tables.get`; no query job) | BigQuery Metadata Viewer (`roles/bigquery.metadataViewer`) | each dataset |
 | [Google recommendations](#usage-based-recommendations-google-cloud-recommender) for resources | Recommender (`recommender.googleapis.com`) | Recommender Viewer (`roles/recommender.viewer`) | the projects |
 | Google commitment recommendations for the billing account | Recommender | Billing Account Viewer (`roles/billing.viewer`), as for contract prices | the billing account |
+| [Actual billing](#actual-billing---billing-history) (`--billing-history` only) | BigQuery (`bigquery.googleapis.com`), `jobs.query` on the Cloud Billing export table | BigQuery Data Viewer (`roles/bigquery.dataViewer`) on the export dataset, and BigQuery Job User (`roles/bigquery.jobUser`) on the project the query runs in; finding the table: Cloud Asset Viewer (`roles/cloudasset.viewer`) on the organization (Cloud Asset API enabled in the quota project), or BigQuery Metadata Viewer on the export dataset | the export dataset |
 
 With user credentials, the Recommender and Cloud Monitoring APIs need a quota
 project where they are enabled: `--quota-project`, `quota_project:`,

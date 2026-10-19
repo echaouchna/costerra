@@ -3,7 +3,7 @@
 use super::args::DiffArgs;
 use super::common::{self, check_total_policy, emit_all, load_config, load_projects, load_usage, price, style};
 use super::ui::{self, notice};
-use super::{insights, prices};
+use super::{billing, insights, prices};
 use anyhow::{Context, Result, bail};
 use costerra::cost::Report;
 use costerra::diff::{self, DiffReport};
@@ -52,6 +52,7 @@ fn checkout_base(path: &Path, git_ref: &str) -> Result<(tempfile::TempDir, PathB
 pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let a = &d.run;
     a.outputs()?;
+    billing::check(a)?;
     ui::set_details(a.details);
     common::start_ui("Evaluating Terraform");
     let config = load_config(a)?;
@@ -85,6 +86,7 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let pricer = prices::build_pricer(a, &config, &sets, &usage, prefetch)?;
     let observed = insights::finish_observed(observing);
     let pending = insights::start(a, &config, &[&head_projects], pricer.billing_account().map(str::to_string));
+    let billing_pending = billing::start(a, &config, &sets, pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
     let mut head = price(a, &head_projects, &config, &pricer, &usage, observed.as_ref(), a.show_recommendations());
     insights::finish(pending, &mut head, &head_projects);
@@ -100,19 +102,29 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
             }
         },
     };
+    let history = billing::finish(billing_pending);
     ui::clear();
     common::report_auth_problems();
 
     emit_all(a, |format, to_file| {
         Ok(match format {
-            Format::Json => serde_json::to_string_pretty(&serde_json::json!({ "diff": dr, "report": head }))? + "\n",
-            Format::Markdown => output::markdown(&head, Some(&dr), None),
+            Format::Json => {
+                let mut j = serde_json::json!({ "diff": dr, "report": head });
+                if let Some(h) = &history {
+                    j["billing_history"] = serde_json::to_value(h)?;
+                }
+                serde_json::to_string_pretty(&j)? + "\n"
+            }
+            Format::Markdown => output::markdown(&head, Some(&dr), None, history.as_ref()),
             Format::Table => {
                 let st = style(a, color, to_file);
                 let mut t = output::diff_table(&dr, &st);
                 if a.show_recommendations() && head.projects.iter().any(|p| !p.recommendations.is_empty()) {
                     t.push('\n');
                     t.push_str(&output::summary(&head, &st));
+                }
+                if let Some(h) = &history {
+                    t.push_str(&billing::table(h, &head, &st));
                 }
                 t
             }

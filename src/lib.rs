@@ -1,6 +1,7 @@
 //! costerra — fast cost estimation and optimization insights for Google Cloud
 //! Terraform & Terragrunt code.
 
+pub mod billing;
 pub mod config;
 pub mod cost;
 pub mod diff;

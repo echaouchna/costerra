@@ -1045,7 +1045,12 @@ fn md_savings(cur: &str, s: f64) -> String {
 
 /// The Markdown report (PR comments), with the rightsizing section when a
 /// plan is given.
-pub fn markdown(report: &Report, diff: Option<&DiffReport>, plan: Option<&crate::rightsize::Plan>) -> String {
+pub fn markdown(
+    report: &Report,
+    diff: Option<&DiffReport>,
+    plan: Option<&crate::rightsize::Plan>,
+    billing: Option<&crate::billing::BillingHistory>,
+) -> String {
     let cur = &report.currency;
     // Projects are named as in the terminal table (`terraform (prod)`, not `. (prod)`).
     let title = |name: &str| project_label(report, name);
@@ -1253,6 +1258,9 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>, plan: Option<&crate:
     if let Some(p) = plan {
         out.push_str(&rightsizing_markdown(p, report));
     }
+    if let Some(h) = billing {
+        out.push_str(&crate::billing::markdown(h, billing_estimate(report, h)));
+    }
     let pricing = match (&report.billing_account, report.list_monthly_cost) {
         (Some(ba), Some(list)) => format!(
             "Contract prices of billing account {ba} (saves {}/month vs list price {}).",
@@ -1291,6 +1299,11 @@ pub fn markdown(report: &Report, diff: Option<&DiffReport>, plan: Option<&crate:
 // ---------------------------------------------------------------------------
 // Diff (terminal)
 // ---------------------------------------------------------------------------
+
+/// The monthly estimate to compare with the billing, when in the same currency.
+pub fn billing_estimate(report: &Report, h: &crate::billing::BillingHistory) -> Option<f64> {
+    (report.currency == h.currency).then_some(report.monthly_cost)
+}
 
 pub fn diff_table(d: &DiffReport, st: &Style) -> String {
     let cur = &d.currency;

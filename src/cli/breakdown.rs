@@ -2,7 +2,7 @@
 
 use super::args::BreakdownArgs;
 use super::common::{self, check_total_policy, emit_all, load_config, load_projects, load_usage, price, style};
-use super::{insights, prices, ui};
+use super::{billing, insights, prices, ui};
 use anyhow::{Result, bail};
 use costerra::output::{self, Format};
 use costerra::{diff, rightsize};
@@ -10,6 +10,7 @@ use costerra::{diff, rightsize};
 pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
     let a = &b.run;
     a.outputs()?;
+    billing::check(a)?;
     ui::set_details(a.details);
     if b.rightsize && (a.eval.offline || a.no_observed) {
         bail!("--rightsize needs the observed usage of the resources: remove --offline / --no-observed");
@@ -29,6 +30,7 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
     let observed = insights::finish_observed(observing);
     let show_recs = a.show_recommendations();
     let pending = insights::start(a, &config, &[&projects], pricer.billing_account().map(str::to_string));
+    let billing_pending = billing::start(a, &config, &[&projects], pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
     let mut report = price(a, &projects, &config, &pricer, &usage, observed.as_ref(), show_recs || b.rightsize);
     // Before Google recommendations, which replace costerra's of the same kind.
@@ -40,6 +42,7 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
         }
         report.potential_savings = 0.0;
     }
+    let history = billing::finish(billing_pending);
     ui::clear();
     common::report_auth_problems();
     let plan_diff = diff::from_plan(&report);
@@ -55,10 +58,13 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
                     if let Some(p) = &plan {
                         obj.insert("rightsizing".into(), serde_json::to_value(p)?);
                     }
+                    if let Some(h) = &history {
+                        obj.insert("billing_history".into(), serde_json::to_value(h)?);
+                    }
                 }
                 serde_json::to_string_pretty(&j)? + "\n"
             }
-            Format::Markdown => output::markdown(&report, plan_diff.as_ref(), plan.as_ref()),
+            Format::Markdown => output::markdown(&report, plan_diff.as_ref(), plan.as_ref(), history.as_ref()),
             Format::Table => {
                 let st = style(a, color, to_file);
                 let mut t = output::table(&report, &st);
@@ -69,6 +75,9 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
                 if let Some(p) = &plan {
                     let notes = observed.as_ref().map(|o| o.notes.as_slice()).unwrap_or_default();
                     t.push_str(&output::rightsizing(p, &report, &st, notes));
+                }
+                if let Some(h) = &history {
+                    t.push_str(&billing::table(h, &report, &st));
                 }
                 t
             }

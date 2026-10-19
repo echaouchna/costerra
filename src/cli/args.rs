@@ -256,6 +256,13 @@ pub struct RunArgs {
     /// Exit with code 2 if the total monthly cost exceeds this amount
     #[arg(long)]
     pub fail_above: Option<f64>,
+    /// Chart of the actual billing of the resources of the code, week by week
+    /// over the last 3 months (from the detailed Cloud Billing export to BigQuery)
+    #[arg(long, env = "COSTERRA_BILLING_HISTORY", value_parser = FalseyValueParser::new())]
+    pub billing_history: bool,
+    /// Cloud Billing export table for --billing-history (default: discovered)
+    #[arg(long, env = "COSTERRA_BILLING_EXPORT_TABLE", value_name = "PROJECT.DATASET.TABLE")]
+    pub billing_export_table: Option<String>,
 }
 
 #[derive(Args)]

@@ -1,6 +1,7 @@
 //! The `costerra` command line.
 
 mod args;
+mod billing;
 mod breakdown;
 mod common;
 mod completions;

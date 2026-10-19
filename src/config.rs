@@ -4,6 +4,7 @@
 //! default_region: europe-west1
 //! currency: USD
 //! billing_account: 012345-6789AB-CDEF01   # use your contract prices
+//! billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01
 //! usage_file: costerra-usage.yml
 //! exclude_paths: ["examples/**"]
 //! environments:
@@ -79,6 +80,9 @@ pub struct Config {
     pub remote_state: Option<bool>,
     /// Service account to impersonate for Google API calls.
     pub impersonate_service_account: Option<String>,
+    /// Cloud Billing export table read by `--billing-history`
+    /// (`project.dataset.gcp_billing_export_resource_v1_…`; default: discovered).
+    pub billing_export_table: Option<String>,
     pub usage_file: Option<PathBuf>,
     pub include_free_tier: bool,
     pub exclude_paths: Vec<String>,

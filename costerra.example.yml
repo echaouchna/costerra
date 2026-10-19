@@ -29,6 +29,11 @@ recommendations:
 # observed_usage: true
 # quota_project: my-project   # quota project for the Recommender and Monitoring APIs
 
+# Detailed Cloud Billing export table read by --billing-history (weekly actual
+# billing of the resources of the code). Default: discovered in the
+# organization of the projects.
+# billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01
+
 # terraform_remote_state (gcs backend) outputs read from the state buckets
 # (Storage Object Viewer), e.g. for project ids taken from another configuration.
 # remote_state: true

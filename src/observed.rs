@@ -240,7 +240,7 @@ impl Targets {
     }
 }
 
-fn gcp_project(r: &ResourceInstance) -> Option<&str> {
+pub(crate) fn gcp_project(r: &ResourceInstance) -> Option<&str> {
     let p = r.attrs.get("project").and_then(|v| v.as_str()).or(r.provider.project.as_deref())?;
     (!p.is_empty() && !p.starts_with(crate::REF_PREFIX) && !p.contains('/')).then_some(p)
 }
