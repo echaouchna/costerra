@@ -100,12 +100,13 @@ impl Engine<'_> {
         project_env: Env,
         with_recs: bool,
     ) -> (Vec<CostedResource>, Vec<Recommendation>) {
-        self.estimate_with_usage(resources, project_env, with_recs, self.usage, None)
+        self.estimate_with_usage(resources, &[], project_env, with_recs, self.usage, None)
     }
 
     fn estimate_with_usage(
         &self,
         resources: &[ResourceInstance],
+        external: &[ResourceInstance],
         project_env: Env,
         with_recs: bool,
         usage_file: &UsageFile,
@@ -171,6 +172,7 @@ impl Engine<'_> {
                         default_region,
                         env,
                         siblings: resources,
+                        external,
                         warnings: RefCell::new(vec![]),
                         location: RefCell::new(None),
                         observed,
@@ -187,6 +189,7 @@ impl Engine<'_> {
                     default_region,
                     env,
                     siblings: resources,
+                    external,
                     warnings: RefCell::new(r.warnings.clone()),
                     location: RefCell::new(None),
                     observed,
@@ -276,14 +279,15 @@ impl Engine<'_> {
             Some(l) => self.usage.overlay(l),
             None => self.usage.clone(),
         };
-        let (resources, recommendations) = self.estimate_with_usage(&p.resources, env, self.recommendations, &usage, Some(&p.name));
+        let (resources, recommendations) =
+            self.estimate_with_usage(&p.resources, &p.external, env, self.recommendations, &usage, Some(&p.name));
         let mut recommendations = group_recommendations(recommendations);
         recommendations.sort_by(|a, b| {
             b.severity.cmp(&a.severity).then(b.monthly_savings.unwrap_or(0.0).total_cmp(&a.monthly_savings.unwrap_or(0.0)))
         });
         let (past_monthly_cost, past_resources) = match &p.prior {
             Some(prior) => {
-                let (past, _) = self.estimate_with_usage(prior, env, false, &usage, Some(&p.name));
+                let (past, _) = self.estimate_with_usage(prior, &p.external, env, false, &usage, Some(&p.name));
                 (Some(past.iter().map(|r| r.monthly_cost).sum()), Some(past))
             }
             None => (None, None),

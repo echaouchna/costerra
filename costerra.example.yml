@@ -27,7 +27,7 @@ recommendations:
 # and makes recommendations data-based. Needs Monitoring Viewer and Compute
 # Viewer on the projects; skipped when not available.
 # observed_usage: true
-# quota_project: my-project   # quota project for the Recommender and Monitoring APIs
+# quota_project: my-project   # quota project for the Recommender and Monitoring APIs, and project of the --billing-history query
 
 # Detailed Cloud Billing export table read by --billing-history (weekly actual
 # billing of the resources of the code). Default: discovered in the

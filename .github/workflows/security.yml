@@ -2,8 +2,11 @@ name: Security scans
 
 # Vulnerabilities of the locked dependencies, secrets in the repository and
 # vulnerabilities of the published image, on main and weekly (new advisories
-# for unchanged code). Findings are uploaded to the Security tab (code
-# scanning alerts, closed when fixed), and the job still fails on them.
+# for unchanged code). The published image is only scanned weekly (after its
+# weekly rebuild) and on demand: on a push, the image workflow scans the
+# image it builds before publishing it, while `latest` is still the previous
+# one. Findings are uploaded to the Security tab (code scanning alerts,
+# closed when fixed), and the job still fails on them.
 # Pull requests are gated by the `audit` job of the CI workflow.
 
 on:
@@ -79,6 +82,7 @@ jobs:
 
   image:
     name: Published image
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

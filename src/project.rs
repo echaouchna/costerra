@@ -3,6 +3,7 @@
 
 use crate::hcl::value::{Map, Value};
 use crate::tf::evaluate::{EvalEnv, EvalOutput, Providers, ResourceInstance, evaluate_module};
+use crate::tf::own_state::OwnState;
 use crate::tf::parse::{ParsedModule, add_source, parse_module_dir, tf_files};
 use crate::tf::plan::load_plan;
 use crate::tf::source::{ModuleResolver, normalize};
@@ -31,6 +32,9 @@ pub struct Project {
     pub resources: Vec<ResourceInstance>,
     /// For plan inputs: the resources before the change.
     pub prior: Option<Vec<ResourceInstance>>,
+    /// Resources of other configurations, read from their states, that the
+    /// resources refer to (for lookups only, never priced).
+    pub external: Vec<ResourceInstance>,
     pub warnings: Vec<String>,
 }
 
@@ -46,7 +50,7 @@ pub struct LoadOptions {
     /// Do not evaluate one project per `environments/*.tfvars` file.
     pub no_env_discovery: bool,
     /// Read the outputs of `terraform_remote_state` (gcs backend) from the
-    /// state buckets.
+    /// state buckets, and the data sources of the configuration's own state.
     pub remote_state: bool,
 }
 
@@ -125,6 +129,7 @@ pub fn load(path: &Path, opts: &LoadOptions) -> Result<Vec<Project>> {
                 kind: ProjectKind::Plan,
                 resources: pr.planned,
                 prior: pr.prior,
+                external: vec![],
                 warnings: vec![],
             }]);
         }
@@ -225,16 +230,22 @@ pub fn load(path: &Path, opts: &LoadOptions) -> Result<Vec<Project>> {
                 inputs.insert(k.clone(), val);
             }
             let manifest_root = d.join(".terraform/modules/modules.json").exists().then(|| d.to_path_buf());
+            let workspace = opts.workspace.clone().unwrap_or_else(|| "default".into());
+            let parsed = parse_module_dir(d);
+            let remote_state = opts.remote_state && !opts.offline;
+            let var_files: Vec<&Path> = env_file.iter().chain(opts.var_files.iter().rev()).map(PathBuf::as_path).collect();
+            let own_state = remote_state.then(|| OwnState::locate(&parsed, d, &var_files, opts.workspace.as_deref())).flatten();
             let env = EvalEnv {
                 resolver: &resolver,
                 manifest_root,
                 root_dir: d.to_path_buf(),
-                workspace: opts.workspace.clone().unwrap_or_else(|| "default".into()),
-                remote_state: opts.remote_state && !opts.offline,
+                workspace,
+                remote_state,
+                own_state: own_state.as_ref(),
             };
-            let parsed = parse_module_dir(d);
             let mut out = EvalOutput::default();
             evaluate_module(&env, &parsed, &inputs, Providers::new(), "", "", 0, &mut out);
+            state_warning(own_state.as_ref(), &mut out);
             let base = rel_name(&path, d);
             let name = match env_file.as_ref().and_then(|f| f.file_stem()) {
                 Some(stem) => format!("{base} ({})", stem.to_string_lossy().trim_end_matches(".tfvars")),
@@ -246,6 +257,7 @@ pub fn load(path: &Path, opts: &LoadOptions) -> Result<Vec<Project>> {
                 kind: ProjectKind::Terraform,
                 resources: out.resources,
                 prior: None,
+                external: out.external,
                 warnings: out.warnings,
             }
         })
@@ -253,6 +265,17 @@ pub fn load(path: &Path, opts: &LoadOptions) -> Result<Vec<Project>> {
     projects.extend(tg_projects);
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(projects)
+}
+
+/// Why the state of the configuration could not be read, only when something
+/// stayed unknown because of it.
+fn state_warning(own_state: Option<&OwnState>, out: &mut EvalOutput) {
+    if let Some(w) = own_state.and_then(OwnState::failure) {
+        let unknown = |w: &String| w.contains("not known statically");
+        if out.warnings.iter().any(unknown) || out.resources.iter().any(|r| r.warnings.iter().any(unknown)) {
+            out.warnings.push(w);
+        }
+    }
 }
 
 pub struct UnitResult {
@@ -335,6 +358,7 @@ impl TgRunner {
                     kind: ProjectKind::Terragrunt,
                     resources: vec![],
                     prior: None,
+                    external: vec![],
                     warnings,
                 }),
                 outputs: Map::new(),
@@ -352,15 +376,24 @@ impl TgRunner {
             }
             Arc::new(m)
         };
+        // The unit's state: its `remote_state`, else a backend block of its
+        // module or of a `generate` block.
+        let own_state = match &cfg.remote_state {
+            _ if !self.remote_state => None,
+            Some((kind, config)) => OwnState::from_backend(kind, config, &self.workspace, dir),
+            None => OwnState::locate(&parsed, dir, &[], Some(&self.workspace)),
+        };
         let env = EvalEnv {
             resolver: &self.resolver,
             manifest_root: None,
             root_dir: find_repo_root(dir).unwrap_or_else(|| dir.to_path_buf()),
             workspace: self.workspace.clone(),
             remote_state: self.remote_state,
+            own_state: own_state.as_ref(),
         };
         let mut out = EvalOutput::default();
         let outputs = evaluate_module(&env, &parsed, &cfg.inputs, Providers::new(), "", "", 0, &mut out);
+        state_warning(own_state.as_ref(), &mut out);
         warnings.extend(out.warnings);
         UnitResult {
             project: Some(Project {
@@ -369,6 +402,7 @@ impl TgRunner {
                 kind: ProjectKind::Terragrunt,
                 resources: out.resources,
                 prior: None,
+                external: out.external,
                 warnings,
             }),
             outputs,

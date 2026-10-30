@@ -86,7 +86,9 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
     let pricer = prices::build_pricer(a, &config, &sets, &usage, prefetch)?;
     let observed = insights::finish_observed(observing);
     let pending = insights::start(a, &config, &[&head_projects], pricer.billing_account().map(str::to_string));
-    let billing_pending = billing::start(a, &config, &sets, pricer.billing_account().map(str::to_string));
+    // The billing of the resources of the head, as in `breakdown`: the chart
+    // is compared with the estimate of the head.
+    let billing_pending = billing::start(a, &config, &[&head_projects], pricer.billing_account().map(str::to_string));
     ui::phase("Pricing resources");
     let mut head = price(a, &head_projects, &config, &pricer, &usage, observed.as_ref(), a.show_recommendations());
     insights::finish(pending, &mut head, &head_projects);
@@ -110,8 +112,8 @@ pub fn run(d: DiffArgs, color: bool) -> Result<i32> {
         Ok(match format {
             Format::Json => {
                 let mut j = serde_json::json!({ "diff": dr, "report": head });
-                if let Some(h) = &history {
-                    j["billing_history"] = serde_json::to_value(h)?;
+                if let (Some(b), Some(obj)) = (&history, j.as_object_mut()) {
+                    billing::json(b, obj)?;
                 }
                 serde_json::to_string_pretty(&j)? + "\n"
             }

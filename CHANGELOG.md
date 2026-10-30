@@ -6,6 +6,94 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-30
+
+### Added
+- The data sources of a Terraform root module are read from its own state
+  (completed by the backend configuration file of the environment, e.g.
+  `backends/prod.tfvars`), like `terraform plan` reads them.
+  A `for_each` built from them (e.g. the members of an Azure AD group) is now
+  known without `init` nor `plan`, instead of one `["<unknown>"]` instance on
+  both sides of a diff (a $0.00 change). A data source is taken from the state
+  only when its arguments are those of the state. Sensitive attributes, data
+  sources holding secrets and managed resources are never kept. Off with
+  `--no-remote-state` (and `--offline`); a warning names the state when it
+  cannot be read and something stayed unknown because of it.
+- `--billing-by-env` (`COSTERRA_BILLING_BY_ENV=1`, implies
+  `--billing-history`): one billing chart per environment when the code spans
+  several (e.g. `live/dev` and `live/prod`), each compared with the estimate
+  of the projects of its environment, in the terminal and in Markdown; in
+  JSON, `billing_history_by_env` next to the total `billing_history`. Without
+  it, a single chart for all the resources of the code, as before. The
+  environment of a project comes from its `projects:` rule in `costerra.yml`,
+  else from the environment words in its path or name, else in its GCP
+  project ids. Still one query on the export: it now sums the cost per
+  resource of the code, and its results are paged.
+
+- Cloud Workstations declared in one configuration and configured in
+  another (the cluster's) are priced with the machine type and disks of their
+  config, read from the other configuration's state through
+  `terraform_remote_state` (workstation configs and clusters are read for
+  lookups only, never priced), instead of a default e2-standard-4 with a
+  200 GiB pd-standard home disk and a warning.
+- `--billing-history` finds Cloud Workstations: their VMs and disks are named
+  after ids that are not in Terraform, but carry the
+  `goog-drz-workstation-uuid` label, matched with the `uid` of each
+  workstation read from the configuration's own state (only that attribute of
+  managed resources is read).
+- `--billing-history`: a query still running when costerra stops waiting is
+  remembered; the next run reads its result instead of running (and paying
+  for) the query again.
+
+- Terraform states of every backend type, read only, for
+  `terraform_remote_state` and the configuration's own state: `gcs` (API),
+  `local` (also without a backend block), `s3` (AWS CLI), `azurerm` (Azure
+  CLI), `http`, `remote` / `cloud` (HCP Terraform and Terraform Enterprise
+  API, token of `TF_TOKEN_<host>` or `terraform login`), and any other backend
+  with `terraform state pull` in a directory initialized for it.
+- The own state is also found from the configuration the directory was
+  initialized with (`.terraform/terraform.tfstate`, including
+  `-backend-config=key=value`) and its selected workspace, when it is the
+  same state; `--workspace` also reads `TF_WORKSPACE`. A Terragrunt unit's
+  state is the one of its `remote_state` block.
+- A warning says which state could not be read and why, when something stays
+  unknown because of it (e.g. a backend that is not initialized).
+
+### Changed
+- `--billing-history`: without a quota project, the query runs in the project
+  of the service account of the credentials (key file, impersonation,
+  workload identity, metadata server), otherwise in the project of the export
+  table. A quota project (`--quota-project`, `quota_project:`,
+  `GOOGLE_CLOUD_QUOTA_PROJECT`) still takes precedence.
+- `--billing-history` scans much less of the export: the weeks read are
+  cached per week, a week read more than 5 days after its end is never read
+  again, and a run only queries the partitions from the first week that is
+  not cached (usually the last one or two weeks instead of 13). The cache no
+  longer depends on the exact resources of the run: a run whose resources
+  were all looked up by an earlier one (e.g. `breakdown` after `diff`)
+  reuses it.
+- `--billing-history` runs the query once: no more second try without
+  partition pruning, nor in another project when it fails. The warning names
+  the project the query ran in, and says when a BigQuery quota is exceeded
+  (instead of "permission denied").
+
+### Fixed
+- The state of the configuration was not found with `--var-file` (only with
+  the discovered environments): the backend configuration file is now also
+  matched by the name of a `--var-file` (`environments/prod.tfvars` →
+  `backends/prod.tfvars`).
+- `diff --billing-history` charted the billing of the resources of the base
+  and the head together, and compared it with the estimate of the head: it
+  now charts the head, like `breakdown`, so both show the same numbers.
+- `--billing-history`: a week cached by a run that looked for more resources
+  (e.g. `breakdown` after `diff`, or another repository reading the same
+  export) added the costs of those other resources to the chart. Only the
+  resources of the code are counted.
+
+### Security
+- `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382) and `webpki-root-certs` 1.0.11
+  (RUSTSEC-2026-0383).
+
 ## [0.4.1] - 2026-10-19
 
 ### Changed
@@ -275,7 +363,8 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/echaouchna/costerra/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/echaouchna/costerra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/echaouchna/costerra/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/echaouchna/costerra/compare/v0.3.0...v0.3.1

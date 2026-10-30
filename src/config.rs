@@ -75,8 +75,9 @@ pub struct Config {
     /// Observed usage of the deployed resources: Cloud Monitoring metrics and
     /// active commitments (default true).
     pub observed_usage: Option<bool>,
-    /// Read `terraform_remote_state` outputs (gcs backend) from the state
-    /// buckets (default true).
+    /// Read `terraform_remote_state` outputs and the data sources of the
+    /// configuration's own state (gcs backend) from the state buckets
+    /// (default true).
     pub remote_state: Option<bool>,
     /// Service account to impersonate for Google API calls.
     pub impersonate_service_account: Option<String>,
@@ -185,16 +186,19 @@ impl Config {
     }
 
     pub fn project_env(&self, name: &str) -> Option<Env> {
+        match self.project_env_name(name)?.as_str() {
+            "prod" | "production" => Some(Env::Prod),
+            _ => Some(Env::NonProd),
+        }
+    }
+
+    /// The `env` of the first `projects:` rule matching a project name.
+    pub fn project_env_name(&self, name: &str) -> Option<String> {
         for p in &self.projects {
             // Patterns are validated when the config is loaded.
             let Ok(g) = globset::Glob::new(&p.pattern) else { continue };
-            let m = g.compile_matcher();
-            if m.is_match(name) {
-                return match p.env.as_deref() {
-                    Some("prod") | Some("production") => Some(Env::Prod),
-                    Some(_) => Some(Env::NonProd),
-                    None => None,
-                };
+            if g.compile_matcher().is_match(name) {
+                return p.env.clone();
             }
         }
         None

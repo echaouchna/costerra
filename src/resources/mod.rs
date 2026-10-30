@@ -441,6 +441,9 @@ pub struct Ctx<'a> {
     pub env: Env,
     /// All resources of the same project (for cross-resource lookups).
     pub siblings: &'a [ResourceInstance],
+    /// Resources of other configurations, read from their states, for
+    /// lookups only (e.g. the config of a workstation declared here).
+    pub external: &'a [ResourceInstance],
     pub warnings: RefCell<Vec<String>>,
     /// Location reported for the resource when it is not a plain region
     /// attribute (e.g. Spanner config, AlloyDB cluster). Set via `set_location`.
@@ -793,6 +796,7 @@ impl<'a> Ctx<'a> {
             default_region: self.default_region,
             env: self.env,
             siblings: self.siblings,
+            external: self.external,
             warnings: RefCell::new(vec![]),
             location: RefCell::new(None),
             observed: self.observed,

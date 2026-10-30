@@ -58,8 +58,8 @@ pub fn run(b: BreakdownArgs, color: bool) -> Result<i32> {
                     if let Some(p) = &plan {
                         obj.insert("rightsizing".into(), serde_json::to_value(p)?);
                     }
-                    if let Some(h) = &history {
-                        obj.insert("billing_history".into(), serde_json::to_value(h)?);
+                    if let Some(b) = &history {
+                        billing::json(b, obj)?;
                     }
                 }
                 serde_json::to_string_pretty(&j)? + "\n"

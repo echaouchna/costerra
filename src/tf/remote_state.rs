@@ -1,15 +1,31 @@
-//! `data "terraform_remote_state"` with the `gcs` backend: the outputs of the
-//! other configuration are read from its state object, when the credentials
-//! allow it, so that values such as project ids are known statically.
+//! `data "terraform_remote_state"`: the outputs of the other configuration
+//! are read from its state, when the credentials allow it, so that values
+//! such as project ids are known statically. Every backend type is read (see
+//! `state_source`).
 //!
-//! State files can hold secrets: only the outputs are kept, in memory, for
-//! the current process; sensitive outputs are left unknown; nothing is
-//! printed, logged or written to the cache.
+//! The resources of the other configuration that the resources of this one
+//! refer to by id (workstation configs and clusters) are read too, for
+//! lookups only: e.g. the machine type and disks of the config of a
+//! workstation declared here. They are never priced.
+//!
+//! State files can hold secrets: only the outputs and those resources are
+//! kept, in memory, for the current process; sensitive outputs and
+//! attributes are left out; nothing is printed, logged or written to the
+//! cache.
 
+use super::evaluate::{ProviderCfg, ResourceInstance};
+use super::own_state::{Key, state_instance};
+use super::parse::Mode;
+use super::state_source::Source;
 use crate::hcl::value::{Map, Value};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
+
+/// Managed resources of other configurations that resources refer to by id.
+const LOOKUP_TYPES: &[&str] = &["google_workstations_workstation_config", "google_workstations_workstation_cluster"];
 
 /// The GCS API (replaced by a local server in tests).
 static API: Mutex<Option<String>> = Mutex::new(None);
@@ -18,54 +34,93 @@ fn api() -> String {
     API.lock().clone().unwrap_or_else(|| "https://storage.googleapis.com".into())
 }
 
-/// Outputs per (bucket, object), or why they could not be read.
-type Fetched = Result<Map, String>;
-static CACHE: Mutex<Option<HashMap<(String, String), Fetched>>> = Mutex::new(None);
+/// What is kept of a state: its outputs, and the resources of `LOOKUP_TYPES`
+/// (module address, type, name, instance key, attributes).
+#[derive(Default)]
+struct Remote {
+    outputs: Map,
+    resources: Vec<(Option<String>, String, String, Key, Map)>,
+}
+
+/// Per state (`Source::describe`), or why it could not be read.
+type Fetched = Result<Arc<Remote>, String>;
+static CACHE: Mutex<Option<HashMap<String, Fetched>>> = Mutex::new(None);
 /// Token for GCS, obtained once.
 static TOKEN: Mutex<Option<Option<String>>> = Mutex::new(None);
 
 /// Fill `outputs` of evaluated `terraform_remote_state` data sources (one
-/// instance, or the instances of `count` / `for_each`). Problems are
-/// returned as warnings; the outputs then stay unknown.
-pub fn resolve(val: Value, warnings: &mut Vec<String>, address: &str) -> Value {
+/// instance, or the instances of `count` / `for_each`), and add the resources
+/// of the other configuration used for lookups to `external`. Problems are
+/// returned as warnings; the outputs then stay unknown. `dir` is the
+/// directory of the module (relative paths of the local backend).
+pub fn resolve(val: Value, warnings: &mut Vec<String>, address: &str, external: &mut Vec<ResourceInstance>, dir: &Path) -> Value {
     match val {
-        Value::Map(m) if m.contains_key("backend") => Value::Map(resolve_one(m, warnings, address)),
-        Value::List(l) => Value::List(l.into_iter().map(|v| resolve(v, warnings, address)).collect()),
-        Value::Map(m) => Value::Map(m.into_iter().map(|(k, v)| (k, resolve(v, warnings, address))).collect()),
+        Value::Map(m) if m.contains_key("backend") => Value::Map(resolve_one(m, warnings, address, external, dir)),
+        Value::List(l) => Value::List(l.into_iter().map(|v| resolve(v, warnings, address, external, dir)).collect()),
+        Value::Map(m) => Value::Map(m.into_iter().map(|(k, v)| (k, resolve(v, warnings, address, external, dir))).collect()),
         v => v,
     }
 }
 
-fn resolve_one(mut attrs: Map, warnings: &mut Vec<String>, address: &str) -> Map {
-    if attrs.get("backend").and_then(Value::as_str) != Some("gcs") {
-        return attrs;
-    }
-    let config = attrs.get("config");
-    let get = |k: &str| config.and_then(|c| c.get(k)).and_then(Value::as_str).filter(|s| !s.starts_with(crate::REF_PREFIX));
-    let Some(bucket) = get("bucket").map(str::to_string) else { return attrs };
-    let prefix = get("prefix").unwrap_or("").trim_matches('/').to_string();
+fn resolve_one(mut attrs: Map, warnings: &mut Vec<String>, address: &str, external: &mut Vec<ResourceInstance>, dir: &Path) -> Map {
+    let Some(kind) = attrs.get("backend").and_then(Value::as_str).map(str::to_string) else { return attrs };
+    let config = attrs.get("config").and_then(Value::as_map).cloned().unwrap_or_default();
     let workspace = attrs.get("workspace").and_then(Value::as_str).unwrap_or("default").to_string();
-    let object = if prefix.is_empty() { format!("{workspace}.tfstate") } else { format!("{prefix}/{workspace}.tfstate") };
+    let source = match Source::from_backend(&kind, &config, &workspace, dir) {
+        Ok(Some(s)) => s,
+        // Its location is not known statically.
+        Ok(None) => return attrs,
+        Err(e) => {
+            warnings.push(format!("{address}: {e}; its outputs are unknown"));
+            return attrs;
+        }
+    };
+    let key = source.describe();
     let fetched = {
         let mut cache = CACHE.lock();
-        cache.get_or_insert_with(HashMap::new).get(&(bucket.clone(), object.clone())).cloned()
+        cache.get_or_insert_with(HashMap::new).get(&key).cloned()
     };
     let fetched = fetched.unwrap_or_else(|| {
-        let r = fetch(&bucket, &object);
-        CACHE.lock().get_or_insert_with(HashMap::new).insert((bucket.clone(), object.clone()), r.clone());
+        let r = fetch(&source);
+        CACHE.lock().get_or_insert_with(HashMap::new).insert(key.clone(), r.clone());
         r
     });
     match fetched {
-        Ok(outputs) => {
+        Ok(remote) => {
             // `defaults` apply to outputs the state does not have.
             let mut merged = match attrs.get("defaults") {
                 Some(Value::Map(d)) => d.clone(),
                 _ => Map::new(),
             };
-            merged.extend(outputs);
+            merged.extend(remote.outputs.clone());
             attrs.insert("outputs".into(), Value::Map(merged));
+            for (module, rtype, name, key, a) in &remote.resources {
+                let index = match key {
+                    Key::None => String::new(),
+                    Key::Index(i) => format!("[{i}]"),
+                    Key::Name(n) => format!("[{}]", serde_json::Value::String(n.clone())),
+                };
+                let module = module.as_deref().map(|m| format!("{m}.")).unwrap_or_default();
+                let addr = format!("{address}:{module}{rtype}.{name}{index}");
+                if external.iter().any(|e| e.address == addr) {
+                    continue;
+                }
+                let project = a.get("project").and_then(Value::as_str).map(str::to_string);
+                external.push(ResourceInstance {
+                    address: addr,
+                    mode: Mode::Managed,
+                    rtype: rtype.clone(),
+                    name: name.clone(),
+                    module_path: String::new(),
+                    attrs: Value::Map(a.clone()),
+                    provider: ProviderCfg { project, ..Default::default() },
+                    file: None,
+                    warnings: vec![],
+                    refs: vec![],
+                });
+            }
         }
-        Err(e) => warnings.push(format!("{address}: cannot read gs://{bucket}/{object} ({e}); its outputs are unknown")),
+        Err(e) => warnings.push(format!("{address}: cannot read {key} ({e}); its outputs are unknown")),
     }
     attrs
 }
@@ -94,7 +149,37 @@ fn token() -> Option<String> {
     got
 }
 
-fn fetch(bucket: &str, object: &str) -> Fetched {
+/// Object of the state of a workspace, with the gcs backend.
+pub(crate) fn object_name(prefix: &str, workspace: &str) -> String {
+    let prefix = prefix.trim_matches('/');
+    if prefix.is_empty() { format!("{workspace}.tfstate") } else { format!("{prefix}/{workspace}.tfstate") }
+}
+
+fn fetch(source: &Source) -> Fetched {
+    let state = source.fetch()?;
+    let mut remote = Remote::default();
+    for (name, o) in state["outputs"].as_object().into_iter().flatten() {
+        // Sensitive outputs stay unknown (they are never needed for costs).
+        if o["sensitive"].as_bool() == Some(true) {
+            continue;
+        }
+        remote.outputs.insert(name.clone(), Value::from_json(&o["value"]));
+    }
+    for r in state["resources"].as_array().into_iter().flatten() {
+        let (Some(rtype), Some(name)) = (r["type"].as_str(), r["name"].as_str()) else { continue };
+        if r["mode"] != "managed" || !LOOKUP_TYPES.contains(&rtype) {
+            continue;
+        }
+        let module = r["module"].as_str().map(str::to_string);
+        for (key, attrs) in r["instances"].as_array().into_iter().flatten().filter_map(state_instance) {
+            remote.resources.push((module.clone(), rtype.to_string(), name.to_string(), key, attrs));
+        }
+    }
+    Ok(Arc::new(remote))
+}
+
+/// The state object, parsed. Callers keep only what they need of it.
+pub(crate) fn fetch_state(bucket: &str, object: &str) -> Result<serde_json::Value, String> {
     let token = token().ok_or("no Google credentials")?;
     let url = format!("{}/storage/v1/b/{bucket}/o/{}", api(), encode(object));
     let client = reqwest::blocking::Client::builder()
@@ -109,16 +194,7 @@ fn fetch(bucket: &str, object: &str) -> Fetched {
         404 => return Err("not found".into()),
         s => return Err(format!("HTTP {s}")),
     }
-    let state: serde_json::Value = r.json().map_err(|_| "not a state file".to_string())?;
-    let mut outputs = Map::new();
-    for (name, o) in state["outputs"].as_object().into_iter().flatten() {
-        // Sensitive outputs stay unknown (they are never needed for costs).
-        if o["sensitive"].as_bool() == Some(true) {
-            continue;
-        }
-        outputs.insert(name.clone(), Value::from_json(&o["value"]));
-    }
-    Ok(outputs)
+    r.json().map_err(|_| "not a state file".to_string())
 }
 
 /// Percent-encoding of an object name in a URL path.
@@ -147,6 +223,7 @@ pub(crate) mod tests {
         *API.lock() = Some(server.url.clone());
         *TOKEN.lock() = Some(Some("t0k3n".into()));
         *CACHE.lock() = None;
+        super::super::own_state::reset_cache();
         let out = f();
         *API.lock() = None;
         *TOKEN.lock() = None;
@@ -179,9 +256,11 @@ pub(crate) mod tests {
             },
             || {
                 let mut w = vec![];
-                let v = resolve(state_ds("tf-state", "team/plat/"), &mut w, "data.terraform_remote_state.team");
+                let v =
+                    resolve(state_ds("tf-state", "team/plat/"), &mut w, "data.terraform_remote_state.team", &mut vec![], Path::new("."));
                 // Read once per process.
-                let again = resolve(state_ds("tf-state", "team/plat"), &mut w, "data.terraform_remote_state.team");
+                let again =
+                    resolve(state_ds("tf-state", "team/plat"), &mut w, "data.terraform_remote_state.team", &mut vec![], Path::new("."));
                 (v, again, w)
             },
         );
@@ -198,13 +277,13 @@ pub(crate) mod tests {
             |req| if req.path.contains("denied") { (403, "{}".into()) } else { (404, "{}".into()) },
             || {
                 let mut w = vec![];
-                let v = resolve(state_ds("denied", "x"), &mut w, "data.terraform_remote_state.a");
+                let v = resolve(state_ds("denied", "x"), &mut w, "data.terraform_remote_state.a", &mut vec![], Path::new("."));
                 assert!(v.get("outputs").is_none());
-                resolve(state_ds("missing", "x"), &mut w, "data.terraform_remote_state.b");
+                resolve(state_ds("missing", "x"), &mut w, "data.terraform_remote_state.b", &mut vec![], Path::new("."));
                 // Other backends and unknown buckets are left alone.
                 let mut other = Map::new();
                 other.insert("backend".into(), Value::from("s3"));
-                resolve(Value::Map(other), &mut w, "data.terraform_remote_state.c");
+                resolve(Value::Map(other), &mut w, "data.terraform_remote_state.c", &mut vec![], Path::new("."));
                 w
             },
         );
@@ -219,7 +298,7 @@ pub(crate) mod tests {
         std::fs::write(
             dir.path().join("main.tf"),
             r#"
-variable "state_bucket" { default = "em52-bk-terraform-state-plat-dev" }
+variable "state_bucket" { default = "my-tf-state-dev" }
 
 data "terraform_remote_state" "team" {
   backend = "gcs"
@@ -244,7 +323,7 @@ resource "google_compute_instance" "vm" {
         .unwrap();
         let projects = with_fake_gcs(
             |req| {
-                if req.path == "/storage/v1/b/em52-bk-terraform-state-plat-dev/o/team-managed-resources%2Fdefault.tfstate" {
+                if req.path == "/storage/v1/b/my-tf-state-dev/o/team-managed-resources%2Fdefault.tfstate" {
                     let state = json!({"outputs": {"applications_project_id": {"value": {"pbi": "pbivm-plat-dev-de66"}}}});
                     (200, state.to_string())
                 } else {

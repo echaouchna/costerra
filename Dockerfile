@@ -13,7 +13,7 @@
 #   docker buildx imagetools inspect rust:1.98-slim-trixie
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
 ARG BUILD_IMAGE=rust:1.98-slim-trixie@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7
-ARG RUNTIME_IMAGE=cgr.dev/chainguard/wolfi-base:latest@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+ARG RUNTIME_IMAGE=cgr.dev/chainguard/wolfi-base:latest@sha256:88a20e2d017bd20cdc0cb3910de603e7bea9512a6c351a8dd3c9df212ab03d73
 
 FROM ${BUILD_IMAGE} AS build
 WORKDIR /src
@@ -31,7 +31,12 @@ RUN --mount=type=cache,id=costerra-cargo-registry,target=/usr/local/cargo/regist
 FROM ${RUNTIME_IMAGE}
 # git: `costerra diff --base <ref>` and remote modules; ca-certificates: HTTPS;
 # curl + jq: posting merge request comments from CI (ci/gitlab-ci.yml).
-RUN apk upgrade --no-cache \
+# PACKAGES_DATE (the day of the build in CI) invalidates this layer in the
+# build cache: without it the packages of the first build are reused, and
+# their security fixes never reach the image.
+ARG PACKAGES_DATE=
+RUN echo "packages of ${PACKAGES_DATE:-now}" \
+    && apk upgrade --no-cache \
     && apk add --no-cache ca-certificates-bundle git curl jq \
     && git config --system --add safe.directory '*'
 COPY --from=build /usr/local/bin/costerra /usr/local/bin/costerra

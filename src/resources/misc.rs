@@ -1022,6 +1022,16 @@ fn workstation(ctx: &Ctx) -> Vec<Component> {
         (id.is_some() && str_at(&s.attrs, "workstation_config_id") == id)
             || (s.module_path == ctx.r.module_path && ctx.r.refs.contains(&format!("{}.{}", s.rtype, s.name)))
     });
+    // Else the config of another configuration, read from its state: the same
+    // config id in the same cluster (ids are only unique within a cluster).
+    let cfg = cfg.or_else(|| {
+        let cluster = ctx.str("workstation_cluster_id");
+        ctx.external.iter().filter(|s| s.rtype == "google_workstations_workstation_config").find(|s| {
+            id.is_some()
+                && str_at(&s.attrs, "workstation_config_id") == id
+                && (cluster.is_none() || str_at(&s.attrs, "workstation_cluster_id") == cluster)
+        })
+    });
     if cfg.is_none() {
         ctx.warn("workstation config not found in this configuration, assuming e2-standard-4 with a 200 GiB home disk");
     }

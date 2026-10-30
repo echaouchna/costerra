@@ -60,7 +60,9 @@ pub struct ParsedModule {
     pub resources: Vec<ResourceBlock>,
     pub module_calls: Vec<ModuleCall>,
     pub providers: Vec<ProviderBlock>,
-    pub has_backend: bool,
+    /// `terraform { backend "<type>" { … } }`: the type and the body of the
+    /// block (`cloud` blocks are recorded with the type `cloud`).
+    pub backend: Option<(String, Body)>,
     pub errors: Vec<String>,
 }
 
@@ -233,8 +235,14 @@ fn add_body(m: &mut ParsedModule, body: Body, file: Arc<PathBuf>) {
                     m.providers.push(ProviderBlock { name: name.to_string(), alias, body: b.body });
                 }
             }
-            "terraform" if b.body.blocks().any(|x| x.identifier.as_str() == "backend" || x.identifier.as_str() == "cloud") => {
-                m.has_backend = true;
+            "terraform" => {
+                for x in b.body.blocks() {
+                    match x.identifier.as_str() {
+                        "backend" => m.backend = block_label(x, 0).map(|t| (t.to_string(), x.body.clone())),
+                        "cloud" => m.backend = Some(("cloud".into(), x.body.clone())),
+                        _ => {}
+                    }
+                }
             }
             _ => {}
         }

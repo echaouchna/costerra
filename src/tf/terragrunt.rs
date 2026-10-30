@@ -18,6 +18,8 @@ pub struct TgConfig {
     pub inputs: Map,
     pub locals: Map,
     pub generate: Vec<(String, String)>,
+    /// `remote_state`: the backend type and configuration of the unit's state.
+    pub remote_state: Option<(String, Map)>,
     pub dependencies: Vec<PathBuf>,
     pub warnings: Vec<String>,
 }
@@ -375,6 +377,7 @@ impl Ctx<'_> {
                         }
                     }
                 }
+                "remote_state" => cfg.remote_state = remote_state(&ev, &b.body),
                 "generate" => {
                     let name = block_label(b, 0).unwrap_or("generated").to_string();
                     if let Some(Value::String(c)) = attr_expr(&b.body, "contents").map(|e| ev.eval_lenient(e)) {
@@ -388,6 +391,12 @@ impl Ctx<'_> {
             && let Value::Map(m) = ev.eval_lenient(e)
         {
             cfg.inputs = m;
+        }
+        // `remote_state = { … }` (attribute form).
+        if let Some(Value::Map(m)) = attr_expr(body, "remote_state").map(|e| ev.eval_lenient(e))
+            && let Some(Value::String(kind)) = m.get("backend")
+        {
+            cfg.remote_state = Some((kind.clone(), m.get("config").and_then(Value::as_map).cloned().unwrap_or_default()));
         }
 
         // 5. merge parents (child overrides)
@@ -405,6 +414,9 @@ impl Ctx<'_> {
                 cfg.source = p.source.clone();
                 cfg.source_base = self.unit_dir.clone();
             }
+            if cfg.remote_state.is_none() {
+                cfg.remote_state = p.remote_state.clone();
+            }
             for (n, c) in &p.generate {
                 if !cfg.generate.iter().any(|(x, _)| x == n) {
                     cfg.generate.push((n.clone(), c.clone()));
@@ -415,6 +427,13 @@ impl Ctx<'_> {
         }
         cfg
     }
+}
+
+/// The backend type and configuration of a `remote_state` block.
+fn remote_state(ev: &Evaluator, body: &Body) -> Option<(String, Map)> {
+    let kind = attr_expr(body, "backend").map(|e| ev.eval_lenient(e))?.as_str()?.to_string();
+    let config = attr_expr(body, "config").map(|e| ev.eval_lenient(e)).and_then(|v| v.as_map().cloned()).unwrap_or_default();
+    Some((kind, config))
 }
 
 impl TgEngine {

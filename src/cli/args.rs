@@ -165,8 +165,8 @@ pub struct EvalArgs {
     /// Variable values: --var name=value
     #[arg(long = "var", value_parser = parse_var)]
     pub vars: Vec<(String, String)>,
-    /// Terraform workspace name
-    #[arg(long)]
+    /// Terraform workspace name (default: the one selected with `terraform workspace select`, else `default`)
+    #[arg(long, env = "TF_WORKSPACE")]
     pub workspace: Option<String>,
     /// Do not evaluate one project per environment tfvars file (environments/*.tfvars…)
     #[arg(long)]
@@ -180,7 +180,7 @@ pub struct EvalArgs {
     /// Allow terragrunt run_cmd() to execute commands
     #[arg(long)]
     pub allow_run_cmd: bool,
-    /// Do not read terraform_remote_state outputs from the GCS state buckets
+    /// Do not read Terraform states from GCS (terraform_remote_state outputs, and the data sources of the configuration's own state)
     #[arg(long, env = "COSTERRA_NO_REMOTE_STATE", value_parser = FalseyValueParser::new())]
     pub no_remote_state: bool,
 }
@@ -231,7 +231,8 @@ pub struct RunArgs {
     /// Do not read the observed usage of deployed resources (Cloud Monitoring metrics, active commitments)
     #[arg(long, env = "COSTERRA_NO_OBSERVED", value_parser = FalseyValueParser::new())]
     pub no_observed: bool,
-    /// Quota project for the Recommender and Cloud Monitoring APIs (default: ADC quota_project_id)
+    /// Quota project for the Recommender and Cloud Monitoring APIs, and project of
+    /// the --billing-history query (default: ADC quota_project_id)
     #[arg(long, env = "GOOGLE_CLOUD_QUOTA_PROJECT")]
     pub quota_project: Option<String>,
     /// Price usage-based resources without estimates with an example profile
@@ -260,6 +261,10 @@ pub struct RunArgs {
     /// over the last 3 months (from the detailed Cloud Billing export to BigQuery)
     #[arg(long, env = "COSTERRA_BILLING_HISTORY", value_parser = FalseyValueParser::new())]
     pub billing_history: bool,
+    /// --billing-history with one chart per environment (dev, prod…) when the
+    /// code spans several, instead of one for all
+    #[arg(long, env = "COSTERRA_BILLING_BY_ENV", value_parser = FalseyValueParser::new())]
+    pub billing_by_env: bool,
     /// Cloud Billing export table for --billing-history (default: discovered)
     #[arg(long, env = "COSTERRA_BILLING_EXPORT_TABLE", value_name = "PROJECT.DATASET.TABLE")]
     pub billing_export_table: Option<String>,
@@ -276,6 +281,11 @@ pub struct BreakdownArgs {
 }
 
 impl RunArgs {
+    /// `--billing-history`, or `--billing-by-env` which implies it.
+    pub fn wants_billing(&self) -> bool {
+        self.billing_history || self.billing_by_env
+    }
+
     /// The outputs, with `--out` given to the format without a file. At most
     /// one format goes to stdout.
     pub fn outputs(&self) -> anyhow::Result<Vec<Output>> {

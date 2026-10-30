@@ -160,16 +160,58 @@ When a Terraform root module keeps its variables in per-environment files
 environment, e.g. `30-network (dev)` and `30-network (prod)`. Disable this with
 `--no-env-discovery`.
 
-`terraform_remote_state` data sources with the `gcs` backend are read from
-their state bucket when your credentials allow it (Storage Object Viewer on
-the bucket), so that values such as project ids taken from another
-configuration are known. Only the outputs are kept, in memory, for the run;
-sensitive outputs stay unknown, and nothing is printed or cached. Turn it off
-with `--no-remote-state`, `COSTERRA_NO_REMOTE_STATE=1` or `remote_state: false`
-(and `--offline`).
+**Terraform states.** costerra reads states, read only, so that what only a
+`terraform plan` would know is known without `init` nor `plan`:
 
-Values that are only known after `terraform apply`, such as other data
-sources and computed attributes, are unknown to static evaluation. `for` expressions filtered by such values keep
+* the outputs of `terraform_remote_state` data sources (project ids, networks…
+  taken from another configuration);
+* the data sources of the configuration itself (Azure AD group members,
+  existing projects…), from its own state, like `terraform plan` reads them
+  before expanding what is built from them: a `for_each` over the members of
+  a group is known. A data source is taken from the state only when its
+  arguments are the ones of the state (otherwise it would read something
+  else); its values are the ones of the last apply or refresh;
+* of the managed resources of the own state, only the ids Google assigned
+  (`uid` of Cloud Workstations): the billing export names their VMs and disks
+  by them;
+* of remote states, the workstation configs and clusters, for lookups only
+  (never priced): a workstation declared here is priced with the machine type
+  and disks of its config in the cluster's configuration.
+
+Every backend type is read:
+
+| Backend | How |
+|---|---|
+| `gcs` | Cloud Storage API, with your Google credentials (Storage Object Viewer on the bucket) |
+| `local` (also without a backend block) | the state file (`terraform.tfstate`, `terraform.tfstate.d/<workspace>/…`) |
+| `s3` | `aws s3 cp` (AWS CLI: profiles, SSO, assumed roles; `region`, `profile`, `endpoint` of the backend) |
+| `azurerm` | `az storage blob download` (Azure CLI login, or `sas_token` / `access_key`, `ARM_SAS_TOKEN` / `ARM_ACCESS_KEY`) |
+| `http` | GET of `address` (basic auth from `username` / `password` or `TF_HTTP_*`) |
+| `remote`, `cloud` (HCP Terraform, Terraform Enterprise) | the API, with the token of `TF_TOKEN_<host>` or `terraform login` |
+| any other (`pg`, `consul`, `kubernetes`…) | `terraform state pull` (or `tofu`, or `COSTERRA_TERRAFORM_BIN`) in the directory, when it is initialized for that state |
+
+The own state is found like `terraform init` does: the backend block (the
+default local backend when there is none), completed by the backend
+configuration file of the environment when the block is partial
+(`backends/<env>.tfvars`, `backend/<env>.hcl`, `<env>.tfbackend`, … as passed
+to `terraform init -backend-config=…`; the environment is the one discovered,
+or the name of a `--var-file`: `--var-file environments/prod.tfvars` →
+`backends/prod.tfvars`). When the directory was initialized for that same
+state, the configuration it was initialized with
+(`.terraform/terraform.tfstate`, including `-backend-config=key=value`) and
+the workspace it selected are used. The workspace is `--workspace` or
+`TF_WORKSPACE`, else the one selected, else `default`. A Terragrunt unit's
+state is the one of its `remote_state` block.
+
+When a state cannot be read and something stays unknown because of it, a
+warning (`--details`) says which state and why. Only what is listed above is
+kept, in memory, for the run: never other managed resources, sensitive outputs
+or attributes, nor data sources that hold secrets (secret versions, tokens,
+keys); nothing is printed or cached. Turn it all off with `--no-remote-state`,
+`COSTERRA_NO_REMOTE_STATE=1` or `remote_state: false` (and `--offline`).
+
+Values that are only known after `terraform apply`, such as computed
+attributes, and data sources not in the state yet, are unknown to static evaluation. `for` expressions filtered by such values keep
 their items (conservative for cost). A `count` / `for_each` that stays unknown
 is estimated as one instance named `["<unknown>"]`, with a warning. Use a plan
 JSON for exact results.
@@ -443,6 +485,19 @@ In a terminal each service has its own color. Costs are net of credits
 (sustained use and committed use discounts, promotions, free tier) and in the
 currency of the billing account.
 
+**One chart per environment** (`--billing-by-env`, `COSTERRA_BILLING_BY_ENV=1`;
+it implies `--billing-history`). By default there is one chart for all the
+resources of the code. With `--billing-by-env`, when the code spans several
+environments (e.g. `costerra breakdown live --billing-by-env` over
+`live/dev` and `live/prod`), there is one chart per environment (`📊 Actual
+billing of dev, last 13 weeks`, …), each with the estimate of the projects
+of that environment, from the same query. The environment of a project is the `env`
+of its `projects:` rule in `costerra.yml`, else the last environment word
+(`environments:`, e.g. `dev`, `staging`, `prod`) in its path or name
+(`network (prod)` for per-environment tfvars), else in the GCP project ids of
+its resources; projects without one are grouped under `other`. With a
+single environment, there is one chart.
+
 The data comes from the [Cloud Billing export to BigQuery](https://cloud.google.com/billing/docs/how-to/export-data-bigquery),
 **detailed usage cost** export (`gcp_billing_export_resource_v1_…`), which
 must be enabled on the billing account: only it names the resource of each
@@ -452,7 +507,10 @@ resource is one of the code:
 * by name (`resource.name`): VMs, disks, buckets, Cloud SQL instances, Cloud
   Run services, BigQuery datasets and the other named resources;
 * by name prefix for the VMs of managed instance groups (`base_instance_name`);
-* by the `goog-k8s-cluster-name` label for the nodes of GKE clusters.
+* by the `goog-k8s-cluster-name` label for the nodes of GKE clusters;
+* by the `goog-drz-workstation-uuid` label for the VMs and disks of Cloud
+  Workstations, with the `uid` of each workstation read from the state (the
+  per-vCPU management fee is not billed to a resource, so it is left out).
 
 Costs without a resource (network egress billed to the project, support…)
 and the resources of the projects that are not in the code are left out. The
@@ -470,11 +528,32 @@ and the warning says where costerra looked and what was refused. You can also
 give the table with `--billing-export-table PROJECT.DATASET.TABLE`
 (`COSTERRA_BILLING_EXPORT_TABLE`, `billing_export_table:` in `costerra.yml`).
 One query sums the cost of the resources of the code per week and service;
-it runs in the quota project, or in the project of the table. The detailed
-export is large: the query reads about 13 weeks of it (a few tens of GB on a
-big billing account, billed as a BigQuery query), hence the cache. Results are cached
-for an hour (the export is updated a few times a day). When the billing
-cannot be read, a warning says why and the rest of the report is unchanged.
+it runs in the quota project when one is set, otherwise in the project of the
+service account of the credentials (`name@PROJECT.iam.gserviceaccount.com`:
+key file, impersonation, workload identity or the metadata server), otherwise
+in the project of the table. It runs once: when it fails (access denied,
+quota exceeded), no other project is tried, and the warning names the
+project it ran in.
+
+The detailed export is large and a query is billed by the days of export it
+scans (a few tens of GB for 13 weeks on a big billing account), so costerra
+reads as little of it as it can:
+
+* only the partitions (export days) of the weeks it reads are scanned, and
+  only the columns it needs (the labels only when the code has GKE clusters);
+* the weeks read are cached per week (in the cache directory). A week read
+  more than 5 days after its end is final and never read again; the more
+  recent ones are read again after an hour. A run reads only from the first
+  week that is not cached for all its resources: usually the last week or
+  two instead of 13. In CI, keep the cache directory between jobs to benefit
+  from it.
+
+A query still running when costerra stops waiting (30 seconds) is billed
+anyway: its job is remembered, and the next run reads its result instead of
+running the query again.
+
+When the billing cannot be read, a warning says why and the rest of the
+report is unchanged.
 
 ### Permissions for `--billing-history`
 
@@ -494,7 +573,7 @@ the chart fills up over time.
 | What | Role | On |
 |---|---|---|
 | Read the export table | BigQuery Data Viewer (`roles/bigquery.dataViewer`): `bigquery.tables.get`, `bigquery.tables.getData` | the export dataset (or its project) |
-| Run the query | BigQuery Job User (`roles/bigquery.jobUser`): `bigquery.jobs.create`, with the BigQuery API enabled | the project the query runs in: the quota project (`--quota-project`, `quota_project:`, `GOOGLE_CLOUD_QUOTA_PROJECT`, ADC `quota_project_id`), otherwise the project of the table. The query is billed there. |
+| Run the query | BigQuery Job User (`roles/bigquery.jobUser`): `bigquery.jobs.create`, with the BigQuery API enabled | the project the query runs in: the quota project (`--quota-project`, `quota_project:`, `GOOGLE_CLOUD_QUOTA_PROJECT`, ADC `quota_project_id`), otherwise the project of the service account of the credentials, otherwise the project of the table. The query is billed there, and counts toward its BigQuery quotas (e.g. a custom `QueryUsagePerUserPerDay`). |
 
 **Finding the table (not needed with `--billing-export-table`):**
 
@@ -511,7 +590,7 @@ For a CI service account, for example:
 SA=costerra@ci-project.iam.gserviceaccount.com
 # read the export (dataset-level grant)
 bq add-iam-policy-binding --member="serviceAccount:$SA" --role=roles/bigquery.dataViewer billing-project:billing_dataset
-# run the query, in the quota project
+# run the query, in the project of the service account (or set a quota project)
 gcloud projects add-iam-policy-binding ci-project --member="serviceAccount:$SA" --role=roles/bigquery.jobUser
 gcloud services enable bigquery.googleapis.com cloudasset.googleapis.com --project ci-project
 # optional, to find the table: or set COSTERRA_BILLING_EXPORT_TABLE instead
@@ -522,9 +601,10 @@ Setting `billing_export_table:` in `costerra.yml` (or
 `COSTERRA_BILLING_EXPORT_TABLE`) skips the discovery: only the two roles of
 the first table are then needed.
 
-It works with `--format json` (`billing_history` key) and `--format
-markdown` (a Mermaid bar chart, rendered by GitHub and GitLab, and the weeks
-per service). It cannot be used with `--offline`.
+It works with `--format json` (`billing_history` key, the total, and
+`billing_history_by_env` with `--billing-by-env`) and `--format markdown`
+(a Mermaid bar chart per environment, rendered by GitHub and GitLab, and the
+weeks per service). It cannot be used with `--offline`.
 
 ## Usage-based recommendations (Google Cloud Recommender)
 
@@ -787,9 +867,11 @@ credentials need Service Account Token Creator
 (`roles/iam.serviceAccountTokenCreator`) on it; an API key is used as is.
 Cached observed usage and recommendations are kept per impersonated account.
 
-**Remote states** (`terraform_remote_state`, `gcs` backend): Storage Object
-Viewer (`roles/storage.objectViewer`) on the state buckets. A state that
-cannot be read leaves its outputs unknown (a warning with `--details`).
+**Terraform states** (`terraform_remote_state`, and the configuration's own
+state): read access to the state. For `gcs`, Storage Object Viewer
+(`roles/storage.objectViewer`) on the state buckets; for the other backends,
+see [Terraform states](#inputs). A state that cannot be read leaves its
+outputs or data sources unknown (a warning with `--details`).
 
 **Observed usage and recommendations** are optional: each one that is missing is
 skipped (costerra never fails because of it, and caches the refusal for

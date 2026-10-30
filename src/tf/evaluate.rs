@@ -1,5 +1,6 @@
 //! Static evaluation of a Terraform module tree.
 
+use super::own_state::Key;
 use super::parse::{Mode, ParsedModule, ResourceBlock, attr_expr, parse_module_dir};
 use super::source::ModuleResolver;
 use crate::hcl::eval::{Evaluator, Scope, collect_refs};
@@ -39,6 +40,9 @@ pub struct ResourceInstance {
 #[derive(Default)]
 pub struct EvalOutput {
     pub resources: Vec<ResourceInstance>,
+    /// Resources of other configurations, read from their states, that
+    /// resources of this one refer to (for lookups only, never priced).
+    pub external: Vec<ResourceInstance>,
     pub warnings: Vec<String>,
 }
 
@@ -50,6 +54,8 @@ pub struct EvalEnv<'a> {
     pub workspace: String,
     /// Read `terraform_remote_state` outputs from the state buckets.
     pub remote_state: bool,
+    /// The configuration's own state, for the values of its data sources.
+    pub own_state: Option<&'a super::own_state::OwnState>,
 }
 
 const MAX_DEPTH: usize = 24;
@@ -90,28 +96,38 @@ fn map_mut<'m>(root: &'m mut Map, key: &str) -> &'m mut Map {
     }
 }
 
-fn expand(ev: &Evaluator, count: &Option<Expression>, for_each: &Option<Expression>, warn: &mut Vec<String>, what: &str) -> Instances {
+/// The instances of a resource or module, or `None` when `count` /
+/// `for_each` is not known statically.
+fn expand_known(ev: &Evaluator, count: &Option<Expression>, for_each: &Option<Expression>) -> Option<Instances> {
     if let Some(c) = count {
         return match ev.eval_lenient(c) {
-            Value::Unknown => {
-                warn.push(format!("{what}: count is not known statically, assuming 1"));
-                Instances::Count(1)
-            }
-            v => Instances::Count(v.as_f64().unwrap_or(1.0).max(0.0) as usize),
+            Value::Unknown => None,
+            v => Some(Instances::Count(v.as_f64().unwrap_or(1.0).max(0.0) as usize)),
         };
     }
     if let Some(fe) = for_each {
         return match ev.eval_lenient(fe) {
-            Value::Map(m) => Instances::ForEach(m.into_iter().collect()),
-            Value::List(l) => Instances::ForEach(l.into_iter().map(|v| (v.to_interp_string().unwrap_or_else(|| "?".into()), v)).collect()),
-            Value::Null => Instances::ForEach(vec![]),
-            _ => {
-                warn.push(format!("{what}: for_each is not known statically, assuming 1 instance"));
-                Instances::ForEach(vec![("<unknown>".into(), Value::Unknown)])
+            Value::Map(m) => Some(Instances::ForEach(m.into_iter().collect())),
+            Value::List(l) => {
+                Some(Instances::ForEach(l.into_iter().map(|v| (v.to_interp_string().unwrap_or_else(|| "?".into()), v)).collect()))
             }
+            Value::Null => Some(Instances::ForEach(vec![])),
+            _ => None,
         };
     }
-    Instances::Single
+    Some(Instances::Single)
+}
+
+fn expand(ev: &Evaluator, count: &Option<Expression>, for_each: &Option<Expression>, warn: &mut Vec<String>, what: &str) -> Instances {
+    expand_known(ev, count, for_each).unwrap_or_else(|| {
+        if count.is_some() {
+            warn.push(format!("{what}: count is not known statically, assuming 1"));
+            Instances::Count(1)
+        } else {
+            warn.push(format!("{what}: for_each is not known statically, assuming 1 instance"));
+            Instances::ForEach(vec![("<unknown>".into(), Value::Unknown)])
+        }
+    })
 }
 
 /// Evaluate a body (attributes + nested blocks) into a map value.
@@ -350,7 +366,7 @@ pub fn evaluate_module(
                 let mut val = eval_resource(env, rb, &root, dir, &providers, addr_prefix, out);
                 if env.remote_state && rb.mode == Mode::Data && rb.rtype == "terraform_remote_state" {
                     let address = format!("{addr_prefix}data.terraform_remote_state.{}", rb.name);
-                    val = super::remote_state::resolve(val, &mut out.warnings, &address);
+                    val = super::remote_state::resolve(val, &mut out.warnings, &address, &mut out.external, dir);
                 }
                 if rb.mode == Mode::Data {
                     map_mut(map_mut(&mut root, "data"), &rb.rtype).insert(rb.name.clone(), val);
@@ -458,7 +474,7 @@ pub fn evaluate_module(
 }
 
 fn eval_resource(
-    _env: &EvalEnv,
+    env: &EvalEnv,
     rb: &ResourceBlock,
     root: &Map,
     dir: &Path,
@@ -473,7 +489,30 @@ fn eval_resource(
         format!("{addr_prefix}{}.{}", rb.rtype, rb.name)
     };
     let mut warns = vec![];
-    let instances = expand(&ev, &rb.count, &rb.for_each, &mut warns, &base);
+    // Data sources are read by `terraform plan` before anything is built from
+    // them: their values in the configuration's own state stand in for that.
+    // Managed resources only take the ids Google assigned to them.
+    let state = match env.own_state {
+        Some(s) if rb.rtype != "terraform_remote_state" && (rb.mode == Mode::Data || super::own_state::reads_managed(&rb.rtype)) => {
+            s.lookup(&base, &rb.rtype)
+        }
+        _ => None,
+    };
+    let instances = match (expand_known(&ev, &rb.count, &rb.for_each), &state) {
+        (Some(i), _) => i,
+        (None, _) if rb.mode == Mode::Managed => expand(&ev, &rb.count, &rb.for_each, &mut warns, &base),
+        (None, Some(st)) if rb.count.is_some() => Instances::Count(st.keys().filter(|k| matches!(k, Key::Index(_))).count()),
+        (None, Some(st)) => Instances::ForEach(
+            st.keys().filter_map(|k| if let Key::Name(n) = k { Some((n.clone(), Value::Unknown)) } else { None }).collect(),
+        ),
+        (None, None) => expand(&ev, &rb.count, &rb.for_each, &mut warns, &base),
+    };
+    let mut stale = false;
+    let mut fill = |key: Key, attrs: &mut Map| {
+        if let Some(st) = &state {
+            stale |= !st.fill(&key, attrs);
+        }
+    };
 
     let provider_key = rb.provider.clone().unwrap_or_else(|| rb.rtype.split('_').next().unwrap_or("google").to_string());
     let provider = providers
@@ -520,10 +559,11 @@ fn eval_resource(
         }
     };
 
-    match instances {
+    let val = match instances {
         Instances::Single => {
             let mut attrs = eval_body(&ev, &rb.body, None, true);
-            push(base, &mut attrs, out);
+            fill(Key::None, &mut attrs);
+            push(base.clone(), &mut attrs, out);
             Value::Map(attrs)
         }
         Instances::Count(n) => {
@@ -533,6 +573,7 @@ fn eval_resource(
                 c.insert("index".into(), Value::Number(i as f64));
                 let s = Scope::new("count", Value::Map(c), None);
                 let mut attrs = eval_body(&ev, &rb.body, Some(&s), true);
+                fill(Key::Index(i), &mut attrs);
                 push(format!("{base}[{i}]"), &mut attrs, out);
                 list.push(Value::Map(attrs));
             }
@@ -546,10 +587,15 @@ fn eval_resource(
                 e.insert("value".into(), v);
                 let s = Scope::new("each", Value::Map(e), None);
                 let mut attrs = eval_body(&ev, &rb.body, Some(&s), true);
+                fill(Key::Name(k.clone()), &mut attrs);
                 push(format!("{base}{}", fmt_key(&k)), &mut attrs, out);
                 map.insert(k, Value::Map(attrs));
             }
             Value::Map(map)
         }
+    };
+    if stale {
+        out.warnings.push(format!("{base}: arguments differ from the state of this configuration, its values are unknown"));
     }
+    val
 }

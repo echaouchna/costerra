@@ -1049,7 +1049,7 @@ pub fn markdown(
     report: &Report,
     diff: Option<&DiffReport>,
     plan: Option<&crate::rightsize::Plan>,
-    billing: Option<&crate::billing::BillingHistory>,
+    billing: Option<&crate::billing::Billing>,
 ) -> String {
     let cur = &report.currency;
     // Projects are named as in the terminal table (`terraform (prod)`, not `. (prod)`).
@@ -1258,7 +1258,7 @@ pub fn markdown(
     if let Some(p) = plan {
         out.push_str(&rightsizing_markdown(p, report));
     }
-    if let Some(h) = billing {
+    for h in billing.map(|b| b.charts()).unwrap_or_default() {
         out.push_str(&crate::billing::markdown(h, billing_estimate(report, h)));
     }
     let pricing = match (&report.billing_account, report.list_monthly_cost) {
@@ -1300,9 +1300,14 @@ pub fn markdown(
 // Diff (terminal)
 // ---------------------------------------------------------------------------
 
-/// The monthly estimate to compare with the billing, when in the same currency.
+/// The monthly estimate to compare with the billing (of the projects of its
+/// environment, for a chart of one), when in the same currency.
 pub fn billing_estimate(report: &Report, h: &crate::billing::BillingHistory) -> Option<f64> {
-    (report.currency == h.currency).then_some(report.monthly_cost)
+    let projects = &h.code_projects;
+    (report.currency == h.currency).then(|| match projects.is_empty() {
+        true => report.monthly_cost,
+        false => report.projects.iter().filter(|p| projects.contains(&p.name)).map(|p| p.monthly_cost).sum(),
+    })
 }
 
 pub fn diff_table(d: &DiffReport, st: &Style) -> String {
