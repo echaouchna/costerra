@@ -93,6 +93,10 @@ All notable changes to costerra are documented here. The format follows
 ### Security
 - `rustls-webpki` 0.103.16 (RUSTSEC-2026-0382) and `webpki-root-certs` 1.0.11
   (RUSTSEC-2026-0383).
+- Container image: brotli 1.2.0-r7 (CVE-2026-111497) and
+  ca-certificates-bundle 20260909-r3 (CVE-2026-111943). The packages of the
+  image are now upgraded on every build day (they were reused from the build
+  cache), and `latest` is rebuilt weekly.
 
 ## [0.4.1] - 2026-10-19
 
