@@ -6,6 +6,42 @@ All notable changes to costerra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+### Added
+- `--billing-history` reads a daily summary of the billing export instead of
+  the export itself: `--billing-summary-table PROJECT.DATASET.TABLE`
+  (`COSTERRA_BILLING_SUMMARY_TABLE`, `billing_summary_table:` in
+  `costerra.yml`). One row per export day, usage day, project, resource, GKE
+  cluster, Cloud Workstation, service and currency, refreshed once a day by a
+  scheduled query (docs/billing-summary-table.md): each run scans megabytes
+  instead of tens or hundreds of GB, and only needs BigQuery Data Viewer on
+  the summary dataset (none on the export) and Job User where the query runs.
+  The matching, the weeks, the per-week cache (kept apart from the export's),
+  the project of the query and `--billing-by-env` are the same as with the
+  export, which is neither discovered nor read. The chart and the Markdown say
+  which table was read, and the JSON has `billing_history.source` (`export` or
+  `summary_table`). A table that cannot be read gives one warning naming it
+  and the project of the query, without falling back to the export. It does
+  not turn `--billing-history` on by itself.
+- `costerra billing summary-sql --export-table P.D.T --table P.D.T [--days
+  120]` prints the SQL of the summary table: its creation, the backfill and
+  the daily scheduled query.
+
+### Changed
+- `--billing-by-env`: the environment of each chart is easier to spot. In
+  the terminal, each chart starts with a rule and the environment as a
+  badge (` PROD ` in reverse video, `[ PROD ]` without colors), and its total
+  names it (`Total of prod over 13 weeks`). In Markdown, the heading starts
+  with it (`` `prod` · Actual billing of prod``), as do the chart title and
+  the total.
+- `diff`: the total says which projects it covers. When some projects have
+  no change (and are not listed), the last line reads `Monthly cost change,
+  all projects:` and the line above names them with their monthly cost
+  (`Unchanged, not listed: live/dev/app ($680.34)`); in Markdown, they are
+  one `Unchanged` row of the project table. Each project line also shows its
+  change in percent.
+
 ## [0.4.2] - 2026-10-30
 
 ### Added
@@ -367,7 +403,8 @@ First public release.
   crates.io trusted publishing, weekly advisory and catalog drift checks;
   Dependabot.
 
-[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/echaouchna/costerra/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/echaouchna/costerra/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/echaouchna/costerra/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/echaouchna/costerra/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/echaouchna/costerra/compare/v0.3.1...v0.4.0

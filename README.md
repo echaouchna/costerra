@@ -336,6 +336,29 @@ colors.
 `diff --base` reads the base ref with `git archive`: it never writes to the
 repository, so it also works on read-only checkouts and in containers.
 
+The diff lists the projects with a changed resource, each with its change,
+then the total of **all** the projects. The projects without a change are not
+listed, but their cost is in the total: the line above it names them, so that
+the totals add up:
+
+```
+Project: live/prod/app
+
+ + google_compute_instance.app[4]
+     $0.00 → $253.12  (+$253.12)
+
+ Monthly cost change for live/prod/app: +$253.12 (+25.0%) ($1,012.47 → $1,265.59)
+
+Key: + added, - removed, ~ changed
+
+Unchanged, not listed: live/dev/app, live/dev/network, live/prod/network ($278.99)
+Monthly cost change, all projects: +$253.12 (+19.6%)  ($1,291.46 → $1,544.58)
+```
+
+In the Markdown comment, the projects without a change are one `Unchanged`
+row of the project table. The percentages are of the previous cost of the
+project, and of all the projects for the total.
+
 In the table, identical instances of a counted resource are grouped as
 `name[*] ×N` with summed quantities and costs; `--no-group` lists every
 instance. The potential savings total counts the best option per resource
@@ -489,9 +512,12 @@ currency of the billing account.
 it implies `--billing-history`). By default there is one chart for all the
 resources of the code. With `--billing-by-env`, when the code spans several
 environments (e.g. `costerra breakdown live --billing-by-env` over
-`live/dev` and `live/prod`), there is one chart per environment (`📊 Actual
-billing of dev, last 13 weeks`, …), each with the estimate of the projects
-of that environment, from the same query. The environment of a project is the `env`
+`live/dev` and `live/prod`), there is one chart per environment, each with
+the estimate of the projects of that environment, from the same query. Each
+starts with a rule and its environment as a badge (` DEV ` in reverse video,
+`[ DEV ]` without colors), and its total names it (`Total of dev over 13
+weeks`); in Markdown, the heading starts with it (`` `dev` · Actual billing of
+dev``). The environment of a project is the `env`
 of its `projects:` rule in `costerra.yml`, else the last environment word
 (`environments:`, e.g. `dev`, `staging`, `prod`) in its path or name
 (`network (prod)` for per-environment tfvars), else in the GCP project ids of
@@ -552,6 +578,25 @@ A query still running when costerra stops waiting (30 seconds) is billed
 anyway: its job is remembered, and the next run reads its result instead of
 running the query again.
 
+**A summary table, for the cheapest runs.** A small table summarizing the
+export per day, refreshed once a day by a scheduled query, holds all that the
+chart needs: each run then scans megabytes instead of tens or hundreds of GB,
+cold or warm. `costerra billing summary-sql --export-table PROJECT.DATASET.TABLE
+--table PROJECT.DATASET.TABLE` prints the SQL that creates it, backfills it and
+refreshes it; [docs/billing-summary-table.md](docs/billing-summary-table.md)
+explains the setup and what each run costs. Then give it with
+`--billing-summary-table PROJECT.DATASET.TABLE`
+(`COSTERRA_BILLING_SUMMARY_TABLE`, `billing_summary_table:` in
+`costerra.yml`; the flag wins over the variable, which wins over the file).
+It is read instead of the export: the export is neither discovered nor read,
+the matching (by name, instance group prefix, GKE cluster, workstation `uid`)
+and the weeks are the same, and the chart says which table it comes from
+(`source` in the JSON: `export` or `summary_table`). It does not turn
+`--billing-history` on by itself. When it cannot be read (not found,
+permission denied, quota), the warning names the table and the project the
+query ran in; costerra does not fall back to the export, since each query is
+billed.
+
 When the billing cannot be read, a warning says why and the rest of the
 report is unchanged.
 
@@ -600,6 +645,14 @@ gcloud organizations add-iam-policy-binding "$ORG_ID" --member="serviceAccount:$
 Setting `billing_export_table:` in `costerra.yml` (or
 `COSTERRA_BILLING_EXPORT_TABLE`) skips the discovery: only the two roles of
 the first table are then needed.
+
+**With a summary table** (`--billing-summary-table`), only two roles are
+needed, and none on the export, which holds the costs of the whole billing
+account: BigQuery Data Viewer (`roles/bigquery.dataViewer`) on the dataset of
+the summary table, and BigQuery Job User (`roles/bigquery.jobUser`) on the
+project the query runs in. The scheduled query that refreshes the table needs
+its own roles, listed in
+[docs/billing-summary-table.md](docs/billing-summary-table.md#permissions).
 
 It works with `--format json` (`billing_history` key, the total, and
 `billing_history_by_env` with `--billing-by-env`) and `--format markdown`
@@ -727,6 +780,7 @@ recommendations:
 observed_usage: true          # read 30 days of Cloud Monitoring metrics and active commitments
 quota_project: my-project     # quota project for the Recommender and Cloud Monitoring APIs
 billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01   # --billing-history (default: discovered)
+billing_summary_table: my-billing.costerra.daily_costs   # read instead of the export (docs/billing-summary-table.md)
 policies:
   max_monthly_cost: 50000
   max_increase_percent: 15

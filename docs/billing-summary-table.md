@@ -3,9 +3,9 @@
 `--billing-history` reads the detailed Cloud Billing export in BigQuery. On a
 large billing account the export holds terabytes, and BigQuery bills every
 query on demand by the bytes it scans. This page explains what a run costs,
-what to set up so that it stays cheap today, and the setup that costs the
-least: a small summary table, which costerra does not read yet (see the end
-of this page).
+what to set up so that it stays cheap, and the setup that costs the least: a
+small summary table, read with `--billing-summary-table` (see
+[Turning it on](#turning-it-on)).
 
 All table names below are placeholders: replace `BILLING_PROJECT`,
 `billing_export` and `gcp_billing_export_resource_v1_XXXXXX_XXXXXX_XXXXXX` with
@@ -49,7 +49,7 @@ dollar. That is cheap once but adds up when every CI job pays it.
 - **One attempt:** a failed query is never retried in another project, since
   each try is billed.
 
-## Recommended setup today
+## Recommended setup with the raw export
 
 1. **Keep the cache directory between CI jobs.** Point `COSTERRA_CACHE_DIR` to
    a directory inside the job workspace and cache it. Use the same cache key on
@@ -70,10 +70,27 @@ dollar. That is cheap once but adds up when every CI job pays it.
 
 The export has one row per SKU, per hour, per resource. The chart needs much
 less: one row per export day, usage day, project, resource, GKE cluster,
-service and currency, with the cost net of credits. A small table
+Cloud Workstation, service and currency, with the cost net of credits. A small table
 pre-aggregated once a day by a scheduled query makes each costerra run scan
 megabytes instead of gigabytes, and moves the cost of `labels` from every run
 to one refresh a day.
+
+### Schema
+
+| column | type | content |
+|---|---|---|
+| `export_day` | `DATE`, required | `DATE(_PARTITIONTIME)` of the export rows (the partition column) |
+| `usage_day` | `DATE` | `DATE(usage_start_time)` |
+| `project` | `STRING` | `project.id` |
+| `resource` | `STRING` | `resource.name` |
+| `cluster` | `STRING` | value of the `goog-k8s-cluster-name` label (GKE nodes) |
+| `workstation` | `STRING` | value of the `goog-drz-workstation-uuid` label (Cloud Workstations) |
+| `service` | `STRING` | `service.description` |
+| `currency` | `STRING` | `currency` |
+| `net` | `FLOAT` | `SUM(cost) + SUM(credits.amount)` |
+
+Partitioned by `export_day` (120-day expiration), clustered by `project,
+resource`. Export rows with no resource name and neither label are left out.
 
 The export is only ever **read**. Do not alter, cluster or re-partition the
 table Google writes to.
@@ -89,36 +106,56 @@ table Google writes to.
   `UNNEST(labels)`, and a non-incremental one rescans the export on every
   refresh, with little control over when that happens.
 
-### One-time backfill
+`costerra billing summary-sql --export-table PROJECT.DATASET.TABLE --table
+PROJECT.DATASET.TABLE [--days 120]` prints the SQL below for your tables.
+
+### Creating the table
 
 Create a dataset (here `costerra`) in the **same location** as the export
 dataset, then:
 
 ```sql
-CREATE TABLE `BILLING_PROJECT.costerra.daily_costs`
+CREATE TABLE `BILLING_PROJECT.costerra.daily_costs` (
+  export_day DATE NOT NULL,
+  usage_day DATE,
+  project STRING,
+  resource STRING,
+  cluster STRING,
+  workstation STRING,
+  service STRING,
+  currency STRING,
+  net FLOAT64
+)
 PARTITION BY export_day
 CLUSTER BY project, resource
-OPTIONS (partition_expiration_days = 120)
-AS
+OPTIONS (partition_expiration_days = 120);
+```
+
+### One-time backfill
+
+```sql
+INSERT INTO `BILLING_PROJECT.costerra.daily_costs`
 SELECT DATE(_PARTITIONTIME) AS export_day,
        DATE(usage_start_time) AS usage_day,
        project.id AS project,
        resource.name AS resource,
        (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name' LIMIT 1) AS cluster,
+       (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-drz-workstation-uuid' LIMIT 1) AS workstation,
        service.description AS service,
        currency,
        SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)) AS net
 FROM `BILLING_PROJECT.billing_export.gcp_billing_export_resource_v1_XXXXXX_XXXXXX_XXXXXX`
 WHERE DATE(_PARTITIONTIME) >= DATE_SUB(CURRENT_DATE(), INTERVAL 120 DAY)
   AND (resource.name IS NOT NULL
-       OR EXISTS(SELECT 1 FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name'))
-GROUP BY 1, 2, 3, 4, 5, 6, 7;
+       OR EXISTS(SELECT 1 FROM UNNEST(labels) l WHERE l.key IN ('goog-k8s-cluster-name', 'goog-drz-workstation-uuid')))
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8;
 ```
 
 ### Daily scheduled query
 
-Each run replaces the last two export days. Rerunning it is harmless, and
-rows that the export writes late into those partitions are picked up.
+Each run replaces the last export days (from `@run_date` minus 2 days).
+Rerunning it is harmless, and rows that the export writes late into those
+partitions are picked up.
 
 ```sql
 DELETE FROM `BILLING_PROJECT.costerra.daily_costs`
@@ -130,14 +167,15 @@ SELECT DATE(_PARTITIONTIME) AS export_day,
        project.id AS project,
        resource.name AS resource,
        (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name' LIMIT 1) AS cluster,
+       (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-drz-workstation-uuid' LIMIT 1) AS workstation,
        service.description AS service,
        currency,
        SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)) AS net
 FROM `BILLING_PROJECT.billing_export.gcp_billing_export_resource_v1_XXXXXX_XXXXXX_XXXXXX`
 WHERE DATE(_PARTITIONTIME) >= DATE_SUB(@run_date, INTERVAL 2 DAY)
   AND (resource.name IS NOT NULL
-       OR EXISTS(SELECT 1 FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name'))
-GROUP BY 1, 2, 3, 4, 5, 6, 7;
+       OR EXISTS(SELECT 1 FROM UNNEST(labels) l WHERE l.key IN ('goog-k8s-cluster-name', 'goog-drz-workstation-uuid')))
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8;
 ```
 
 ### Why the chart stays the same
@@ -148,8 +186,12 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7;
 - **Same weekly buckets:** `usage_day` keeps the weekly bucketing costerra does
   today.
 - **Nothing costerra could use is dropped:** rows with neither a resource name
-  nor a cluster label are left out, and costerra never matches those to a
-  resource of the code.
+  nor a cluster or workstation label are left out, and costerra never matches
+  those to a resource of the code.
+- **Same matching:** costerra runs the query it runs on the export, on the
+  summary columns: by `project/resource` name, by name prefix for the VMs of
+  managed instance groups, by `project/cluster` for GKE nodes and by
+  `project/workstation` for Cloud Workstations.
 
 ### Cost, compared
 
@@ -174,24 +216,36 @@ from the first run when the CI cache is not kept.
   - BigQuery Job User on the project it runs in, which is billed for the
     refresh.
 - Users and CI then only need BigQuery Data Viewer on the `costerra` dataset,
-  not on the raw export, which holds the costs of the whole billing account.
+  not on the raw export, which holds the costs of the whole billing account,
+  plus BigQuery Job User on the project their query runs in.
 - Keep at least 13 weeks of history plus a margin. The 120-day partition
   expiration keeps the table bounded.
 
-## costerra changes (to do)
+## Turning it on
 
-- A `billing_summary_table:` setting and a `--billing-summary-table` flag,
-  with an environment variable like the other billing options.
-- When it is set, run the same matching and weekly sums on the summary
-  columns (`usage_day`, `project`, `resource`, `cluster`, `service`,
-  `currency`, `net`), with `export_day` as the partition filter instead of
-  `_PARTITIONTIME`.
-- Keep the per-week cache, the choice of the job project and
-  `--billing-by-env` as they are.
-- Optionally, a command that prints the backfill and scheduled-query SQL for
-  a given export table, so that nobody has to adapt it by hand.
-- Document it in the README's `--billing-history` section, and link this page
-  from there.
+Once the table is created, backfilled and refreshed daily, give it to
+costerra with one of (the first one set wins):
+
+- `--billing-summary-table PROJECT.DATASET.TABLE` on `breakdown` or `diff`;
+- the `COSTERRA_BILLING_SUMMARY_TABLE` environment variable (for example a CI
+  variable: see `ci/gitlab-ci.yml` and `ci/github-actions.yml`);
+- `billing_summary_table: PROJECT.DATASET.TABLE` in `costerra.yml`.
+
+It does not turn `--billing-history` on by itself:
+
+```sh
+COSTERRA_BILLING_SUMMARY_TABLE=BILLING_PROJECT.costerra.daily_costs \
+  costerra breakdown live --billing-history
+```
+
+The chart then says `from the billing summary table BILLING_PROJECT.costerra.daily_costs`
+(and `"source": "summary_table"` in the JSON). The export is not discovered
+nor read, and `--billing-export-table` is ignored. The per-week cache, the
+project the query runs in, the single attempt and `--billing-by-env` work as
+with the export; the cache of a summary table is kept apart from the cache of
+the export. When the table cannot be read (not found, permission denied,
+quota exceeded), the warning names the table and the project the query ran
+in, and costerra does not fall back to the export: each query is billed.
 
 ## Open questions
 

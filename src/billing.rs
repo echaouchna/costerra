@@ -2,7 +2,10 @@
 //! projects), week by week, read from the detailed Cloud Billing export to
 //! BigQuery (`--billing-history`).
 //!
-//! The export table is given (`--billing-export-table`,
+//! The billing is read from a daily summary of the export when one is given
+//! (`--billing-summary-table`, `billing_summary_table:`; see
+//! docs/billing-summary-table.md), otherwise from the export itself. The
+//! export table is given (`--billing-export-table`,
 //! `billing_export_table:`) or discovered: costerra looks for the
 //! `gcp_billing_export_resource_v1_<billing account>` table in the
 //! organization of the projects (Cloud Asset Inventory), then in the datasets
@@ -63,6 +66,36 @@ pub struct Week {
     pub in_progress: bool,
 }
 
+/// The kind of table the billing is read from.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// The detailed Cloud Billing export.
+    #[default]
+    Export,
+    /// A daily summary of the export (docs/billing-summary-table.md).
+    SummaryTable,
+}
+
+impl Source {
+    /// What is read, for messages: `billing export p.d.t`.
+    fn what(self, table: &str) -> String {
+        match self {
+            Source::Export => format!("billing export {table}"),
+            Source::SummaryTable => format!("billing summary table {table}"),
+        }
+    }
+
+    /// Key of the cache of weeks and of the pending query of `table`: the
+    /// rows of the two kinds of tables are never mixed.
+    fn cache_key(self, table: &str) -> String {
+        match self {
+            Source::Export => table.to_string(),
+            Source::SummaryTable => format!("summary:{table}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BillingHistory {
     /// Environment of the resources of this chart, when split by environment.
@@ -71,8 +104,11 @@ pub struct BillingHistory {
     /// Projects of the code of the environment (to compare with their estimate).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub code_projects: Vec<String>,
-    /// The billing export table read.
+    /// The table read.
     pub table: String,
+    /// The kind of table read: the export or a summary of it.
+    #[serde(default)]
+    pub source: Source,
     pub currency: String,
     /// GCP projects of the code.
     pub projects: Vec<String>,
@@ -117,6 +153,9 @@ impl BillingHistory {
 pub struct Request {
     /// `project.dataset.table` of the export; discovered when `None`.
     pub table: Option<String>,
+    /// `project.dataset.table` of a daily summary of the export: read instead
+    /// of the export, which is then neither discovered nor read.
+    pub summary_table: Option<String>,
     /// Billing account of the projects (picks the export table when several are found).
     pub billing_account: Option<String>,
     /// Resources of the code.
@@ -354,10 +393,12 @@ struct Cache {
     /// billing account (or "") -> (why no table was found, searched at).
     #[serde(default)]
     misses: HashMap<String, (String, u64)>,
-    /// table -> Monday of the week -> what was read of that week.
+    /// table (`summary:` prefixed for a summary table) -> Monday of the week
+    /// -> what was read of that week.
     #[serde(default)]
     weeks: HashMap<String, BTreeMap<String, CachedWeek>>,
-    /// table -> the query still running when the last run stopped waiting.
+    /// table (as for `weeks`) -> the query still running when the last run
+    /// stopped waiting.
     #[serde(default)]
     pending: HashMap<String, PendingJob>,
 }
@@ -451,8 +492,13 @@ impl ApiError {
         }
     }
 
-    /// A readable reason, `what` being read.
-    fn describe(&self, what: &str) -> String {
+    /// A readable reason, `table` of `source` being read and the query run in `job_project`.
+    fn describe(&self, source: Source, table: &str, job_project: &str) -> String {
+        let what = format!("{} (query run in {job_project})", source.what(table));
+        let dataset = match source {
+            Source::Export => "the billing export dataset",
+            Source::SummaryTable => "the dataset of the summary table",
+        };
         match self {
             ApiError::Status(_, b) if b.contains("SERVICE_DISABLED") || b.contains("has not been used") => {
                 format!("{what}: the BigQuery API is disabled in this project (or set a quota project with --quota-project)")
@@ -462,16 +508,21 @@ impl ApiError {
                  or run the query in another project with --quota-project",
                 message(b)
             ),
-            ApiError::Status(400, b) if b.contains("_PARTITIONTIME") => {
+            ApiError::Status(400, b) if source == Source::Export && b.contains("_PARTITIONTIME") => {
                 format!("{what}: the table is not partitioned by day, as the Cloud Billing exports are ({})", message(b))
             }
             ApiError::Status(403 | 401, b) => {
                 let reason = message(b);
                 format!(
-                    "{what}: permission denied ({reason}); grant roles/bigquery.dataViewer on the billing export dataset and roles/bigquery.jobUser on the project the query runs in"
+                    "{what}: permission denied ({reason}); grant roles/bigquery.dataViewer on {dataset} and roles/bigquery.jobUser on the project the query runs in"
                 )
             }
             ApiError::Status(404, b) => format!("{what}: not found ({})", message(b)),
+            ApiError::Status(400, b) if source == Source::SummaryTable && b.contains("Unrecognized name") => format!(
+                "{what}: not a costerra summary table ({}); its columns are in docs/billing-summary-table.md \
+                 (`costerra billing summary-sql` prints the SQL that builds it)",
+                message(b)
+            ),
             ApiError::Status(400, b) if b.contains("Unrecognized name: resource") || b.contains("Name resource not found") => format!(
                 "{what}: not a detailed usage cost export ({TABLE_PREFIX}…): the standard export has no resource names, \
                  so the costs of the resources of the code cannot be told apart"
@@ -751,39 +802,12 @@ impl Http<'_> {
         self.service_account_project().await.unwrap_or(table_project)
     }
 
-    /// Rows since `start` (a Monday) for the resources of `stack`, the query run in `job_project`.
-    async fn weekly(&self, job_project: &str, table: &str, stack: &Stack, start: &str) -> Result<Vec<Row>, ApiError> {
-        let sql = {
-            // The export is partitioned by export day, never before the usage
-            // day: only the partitions since `start` are scanned (and billed).
-            let pruning = " AND DATE(_PARTITIONTIME) >= DATE_SUB(@start, INTERVAL 1 DAY)";
-            // The labels are only read (and billed) when the code has
-            // resources matched by label.
-            let label_keys: Vec<&str> = [
-                (!stack.clusters.is_empty()).then_some("'goog-k8s-cluster-name'"),
-                (!stack.workstations.is_empty()).then_some("'goog-drz-workstation-uuid'"),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            let cluster = if label_keys.is_empty() {
-                "CAST(NULL AS STRING)".to_string()
-            } else {
-                format!(
-                    "(SELECT CONCAT(project.id, '/', l.value) FROM UNNEST(labels) AS l WHERE l.key IN ({}) LIMIT 1)",
-                    label_keys.join(", ")
-                )
-            };
-            format!(
-                "WITH r AS (SELECT usage_start_time, service.description AS service, cost, credits, currency, \
-                 CONCAT(project.id, '/', IFNULL(resource.name, '')) AS rkey, {cluster} AS ckey \
-                 FROM `{table}` WHERE usage_start_time >= TIMESTAMP(@start) AND project.id IN UNNEST(@projects){pruning}), \
-                 k AS (SELECT *, IF(ckey IN UNNEST(@clusters), ckey, IF(rkey IN UNNEST(@names), rkey, \
-                 (SELECT p FROM UNNEST(@prefixes) AS p WHERE STARTS_WITH(rkey, p) LIMIT 1))) AS resource FROM r) \
-                 SELECT FORMAT_DATE('%F', DATE_TRUNC(DATE(usage_start_time), ISOWEEK)) AS week, service, \
-                 SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) AS c), 0)) AS net, ANY_VALUE(currency) AS currency, resource \
-                 FROM k WHERE resource IS NOT NULL GROUP BY week, service, resource"
-            )
+    /// Rows since `start` (a Monday) for the resources of `stack`, read from
+    /// `table` of `source`, the query run in `job_project`.
+    async fn weekly(&self, job_project: &str, source: Source, table: &str, stack: &Stack, start: &str) -> Result<Vec<Row>, ApiError> {
+        let sql = match source {
+            Source::Export => export_sql(table, stack),
+            Source::SummaryTable => summary_sql(table, stack),
         };
         let array = |name: &str, values: Vec<&str>| {
             serde_json::json!({"name": name, "parameterType": {"type": "ARRAY", "arrayType": {"type": "STRING"}},
@@ -850,6 +874,121 @@ impl Http<'_> {
     }
 }
 
+/// The weekly query on the export: the cost net of credits per week, service
+/// and resource of `stack` since `@start`.
+fn export_sql(table: &str, stack: &Stack) -> String {
+    // The export is partitioned by export day, never before the usage
+    // day: only the partitions since `start` are scanned (and billed).
+    let pruning = " AND DATE(_PARTITIONTIME) >= DATE_SUB(@start, INTERVAL 1 DAY)";
+    // The labels are only read (and billed) when the code has
+    // resources matched by label.
+    let label_keys: Vec<&str> = [
+        (!stack.clusters.is_empty()).then_some("'goog-k8s-cluster-name'"),
+        (!stack.workstations.is_empty()).then_some("'goog-drz-workstation-uuid'"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let cluster = if label_keys.is_empty() {
+        "CAST(NULL AS STRING)".to_string()
+    } else {
+        format!("(SELECT CONCAT(project.id, '/', l.value) FROM UNNEST(labels) AS l WHERE l.key IN ({}) LIMIT 1)", label_keys.join(", "))
+    };
+    format!(
+        "WITH r AS (SELECT usage_start_time, service.description AS service, cost, credits, currency, \
+         CONCAT(project.id, '/', IFNULL(resource.name, '')) AS rkey, {cluster} AS ckey \
+         FROM `{table}` WHERE usage_start_time >= TIMESTAMP(@start) AND project.id IN UNNEST(@projects){pruning}), \
+         k AS (SELECT *, IF(ckey IN UNNEST(@clusters), ckey, IF(rkey IN UNNEST(@names), rkey, \
+         (SELECT p FROM UNNEST(@prefixes) AS p WHERE STARTS_WITH(rkey, p) LIMIT 1))) AS resource FROM r) \
+         SELECT FORMAT_DATE('%F', DATE_TRUNC(DATE(usage_start_time), ISOWEEK)) AS week, service, \
+         SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) AS c), 0)) AS net, ANY_VALUE(currency) AS currency, resource \
+         FROM k WHERE resource IS NOT NULL GROUP BY week, service, resource"
+    )
+}
+
+/// The same query on a summary table (docs/billing-summary-table.md): the
+/// same keys (`project/name`, `project/label value`), weeks and sums, on its
+/// top-level columns.
+fn summary_sql(table: &str, stack: &Stack) -> String {
+    // Partitioned by `export_day` like the export by `_PARTITIONTIME`, and
+    // `usage_day` is `DATE(usage_start_time)`: the same partitions and weeks.
+    // The label columns are only read when the code has resources matched by them.
+    let labels: Vec<&str> = [(!stack.clusters.is_empty()).then_some("cluster"), (!stack.workstations.is_empty()).then_some("workstation")]
+        .into_iter()
+        .flatten()
+        .collect();
+    let keys: String = labels.iter().map(|c| format!(", CONCAT(project, '/', {c}) AS {c}_key")).collect();
+    let matched: String = labels.iter().map(|c| format!("IF({c}_key IN UNNEST(@clusters), {c}_key, NULL), ")).collect();
+    format!(
+        "WITH r AS (SELECT usage_day, service, net, currency, CONCAT(project, '/', IFNULL(resource, '')) AS rkey{keys} \
+         FROM `{table}` WHERE export_day >= DATE_SUB(@start, INTERVAL 1 DAY) AND usage_day >= @start AND project IN UNNEST(@projects)), \
+         k AS (SELECT *, COALESCE({matched}IF(rkey IN UNNEST(@names), rkey, \
+         (SELECT p FROM UNNEST(@prefixes) AS p WHERE STARTS_WITH(rkey, p) LIMIT 1))) AS resource FROM r) \
+         SELECT FORMAT_DATE('%F', DATE_TRUNC(usage_day, ISOWEEK)) AS week, service, \
+         SUM(net) AS net, ANY_VALUE(currency) AS currency, resource \
+         FROM k WHERE resource IS NOT NULL GROUP BY week, service, resource"
+    )
+}
+
+/// The rows of a summary table, from the export rows of `{filter}`: one per
+/// export day, usage day, project, resource, GKE cluster, workstation,
+/// service and currency. Rows with neither a resource name nor one of the
+/// labels are left out: they never match a resource of the code.
+const SUMMARY_SELECT: &str = "SELECT DATE(_PARTITIONTIME) AS export_day,
+       DATE(usage_start_time) AS usage_day,
+       project.id AS project,
+       resource.name AS resource,
+       (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-k8s-cluster-name' LIMIT 1) AS cluster,
+       (SELECT l.value FROM UNNEST(labels) l WHERE l.key = 'goog-drz-workstation-uuid' LIMIT 1) AS workstation,
+       service.description AS service,
+       currency,
+       SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) c), 0)) AS net
+FROM `{export}`
+WHERE {filter}
+  AND (resource.name IS NOT NULL
+       OR EXISTS(SELECT 1 FROM UNNEST(labels) l WHERE l.key IN ('goog-k8s-cluster-name', 'goog-drz-workstation-uuid')))
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8";
+
+/// The SQL of a summary table of `export` (`costerra billing summary-sql`):
+/// its creation, the backfill of `days` export days, and the daily
+/// scheduled query that replaces the last export days.
+pub fn summary_table_sql(export: &str, table: &str, days: u32) -> Result<String, String> {
+    for (t, what) in [(export, "export"), (table, "summary")] {
+        if parse_table(t).is_none() {
+            return Err(format!("invalid {what} table '{t}' (expected PROJECT.DATASET.TABLE)"));
+        }
+    }
+    let select = |filter: &str| SUMMARY_SELECT.replace("{export}", export).replace("{filter}", filter);
+    Ok(format!(
+        "-- Daily summary of {export} read by costerra --billing-history\n\
+         -- (--billing-summary-table {table}). Create its dataset in the location of the export.\n\n\
+         -- 1. Create the table.\n\
+         CREATE TABLE `{table}` (\n  \
+           export_day DATE NOT NULL,\n  \
+           usage_day DATE,\n  \
+           project STRING,\n  \
+           resource STRING,\n  \
+           cluster STRING,\n  \
+           workstation STRING,\n  \
+           service STRING,\n  \
+           currency STRING,\n  \
+           net FLOAT64\n\
+         )\n\
+         PARTITION BY export_day\n\
+         CLUSTER BY project, resource\n\
+         OPTIONS (partition_expiration_days = {days});\n\n\
+         -- 2. Backfill the last {days} export days (once).\n\
+         INSERT INTO `{table}`\n{};\n\n\
+         -- 3. Daily scheduled query: replaces the last export days (rerunning it is harmless,\n\
+         -- and the rows the export writes late into them are picked up).\n\
+         DELETE FROM `{table}`\n\
+         WHERE export_day >= DATE_SUB(@run_date, INTERVAL 2 DAY);\n\n\
+         INSERT INTO `{table}`\n{};\n",
+        select(&format!("DATE(_PARTITIONTIME) >= DATE_SUB(CURRENT_DATE(), INTERVAL {days} DAY)")),
+        select("DATE(_PARTITIONTIME) >= DATE_SUB(@run_date, INTERVAL 2 DAY)"),
+    ))
+}
+
 /// One row of the query: the cost of a resource of the stack for a week and a service.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 struct Row {
@@ -868,7 +1007,7 @@ pub async fn fetch(cache_dir: &Path, req: &Request, until: std::time::Instant) -
         _ => None,
     };
     let mut req = req.clone();
-    if req.billing_account.is_none() && req.table.is_none() {
+    if req.billing_account.is_none() && req.table.is_none() && req.summary_table.is_none() {
         // The account names the export table: found even when its prices are not readable.
         req.billing_account = crate::pricing::account::detect(cache_dir, &req.stack.projects(), false).await;
     }
@@ -886,7 +1025,12 @@ async fn fetch_from(
     if req.stack.is_empty() {
         return Err("no resource of the code has a name and a GCP project known before apply (set `project` on the provider)".into());
     }
-    if let Some(t) = &req.table
+    if let Some(t) = &req.summary_table
+        && parse_table(t).is_none()
+    {
+        return Err(format!("invalid billing summary table '{t}' (expected PROJECT.DATASET.TABLE)"));
+    }
+    if let Some(t) = req.table.as_ref().filter(|_| req.summary_table.is_none())
         && parse_table(t).is_none()
     {
         return Err(format!("invalid billing export table '{t}' (expected PROJECT.DATASET.TABLE)"));
@@ -894,7 +1038,12 @@ async fn fetch_from(
     let first = monday(today) - 7 * (WEEKS as i64 - 1);
     let account_key = req.billing_account.clone().unwrap_or_default();
     let cache: Cache = crate::util::read_json(&cache_path(cache_dir));
-    if req.table.is_none()
+    // A summary table is read instead of the export: no discovery.
+    let (source, given) = match &req.summary_table {
+        Some(t) => (Source::SummaryTable, Some(t.clone())),
+        None => (Source::Export, req.table.clone()),
+    };
+    if given.is_none()
         && let Some((why, at)) = cache.misses.get(&account_key)
         && now().saturating_sub(*at) < MISS_TTL_SECS
     {
@@ -907,10 +1056,10 @@ async fn fetch_from(
         .filter(|(t, at)| t.contains(TABLE_PREFIX) && now().saturating_sub(*at) < DISCOVERY_TTL_SECS)
         .map(|(t, _)| t.clone());
     let projects = req.stack.projects();
-    if let Some(t) = req.table.clone().or(discovered.clone())
-        && let (rows, None) = cached_rows(&cache, &t, &req.stack, first)
+    if let Some(t) = given.clone().or(discovered.clone())
+        && let (rows, None) = cached_rows(&cache, &source.cache_key(&t), &req.stack, first)
     {
-        return Ok(billing(&t, &req.stack, req.by_env, first, today, &rows));
+        return Ok(billing((&t, source), &req.stack, req.by_env, first, today, &rows));
     }
 
     let until = tokio::time::Instant::from_std(until);
@@ -926,7 +1075,7 @@ async fn fetch_from(
         .map_err(|e| e.to_string())?;
     let http = Http { client, auth, quota: req.quota.as_deref(), until, api };
 
-    let table = match req.table.clone().or(discovered) {
+    let table = match given.or(discovered) {
         Some(t) => t,
         None => {
             let mut known: Vec<String> = req.quota.iter().cloned().collect();
@@ -954,23 +1103,24 @@ async fn fetch_from(
     };
     // Only the weeks not cached yet (or not final) are read: the cost of the
     // query is the partitions it scans.
-    let (mut rows, from) = cached_rows(&cache, &table, &req.stack, first);
+    let key = source.cache_key(&table);
+    let (mut rows, from) = cached_rows(&cache, &key, &req.stack, first);
     // All cached, for a table just found again.
-    let Some(from) = from else { return Ok(billing(&table, &req.stack, req.by_env, first, today, &rows)) };
+    let Some(from) = from else { return Ok(billing((&table, source), &req.stack, req.by_env, first, today, &rows)) };
     let start = iso_date(from);
     let wanted: BTreeSet<String> = req.stack.keys().cloned().collect();
     // A query of an earlier run, for these weeks and resources, that was
     // still running: its result is read instead of running it again.
     let pending = cache
         .pending
-        .get(&table)
+        .get(&key)
         .filter(|p| p.start == start && wanted.is_subset(&p.resources) && now().saturating_sub(p.at) < PENDING_TTL_SECS)
         .cloned();
     let resumed = match &pending {
         Some(p) => match http.resume(&p.job).await {
             Ok(rows) => Some((rows, p.at, p.resources.clone())),
             Err(ApiError::Running(_)) => {
-                return Err(ApiError::Running(p.job.clone()).describe(&format!("billing export {table} (query run in {})", p.job.project)));
+                return Err(ApiError::Running(p.job.clone()).describe(source, &table, &p.job.project));
             }
             Err(e) => {
                 tracing::debug!("billing export: the query of an earlier run cannot be read: {}", e.reason(""));
@@ -983,25 +1133,25 @@ async fn fetch_from(
         Some(r) => r,
         None => {
             let job = http.job_project(&table).await;
-            tracing::info!("reading the billing of {} resources from {table} since {start}, in {job}", req.stack.len());
+            tracing::info!("reading the billing of {} resources from the {} since {start}, in {job}", req.stack.len(), source.what(&table));
             let at = now();
-            match http.weekly(&job, &table, &req.stack, &start).await {
+            match http.weekly(&job, source, &table, &req.stack, &start).await {
                 Ok(rows) => (rows, at, wanted),
                 Err(e) => {
                     if let ApiError::Running(j) = &e {
                         let p = PendingJob { job: j.clone(), start: start.clone(), resources: wanted, at };
                         crate::util::update_json(&cache_path(cache_dir), |c: &mut Cache| {
-                            c.pending.insert(table.clone(), p);
+                            c.pending.insert(key.clone(), p);
                         });
                     }
-                    return Err(e.describe(&format!("billing export {table} (query run in {job})")));
+                    return Err(e.describe(source, &table, &job));
                 }
             }
         }
     };
     crate::util::update_json(&cache_path(cache_dir), |c: &mut Cache| {
-        c.pending.remove(&table);
-        let weeks = c.weeks.entry(table.clone()).or_default();
+        c.pending.remove(&key);
+        let weeks = c.weeks.entry(key.clone()).or_default();
         for day in (from..=monday(today)).step_by(7) {
             let week = iso_date(day);
             let rows = read.iter().filter(|r| r.week == week).cloned().collect();
@@ -1010,12 +1160,12 @@ async fn fetch_from(
         weeks.retain(|w, _| parse_date(w).is_some_and(|d| d >= first));
     });
     rows.extend(read);
-    Ok(billing(&table, &req.stack, req.by_env, first, today, &rows))
+    Ok(billing((&table, source), &req.stack, req.by_env, first, today, &rows))
 }
 
 /// The total, and one history per environment when asked for and the stack
-/// spans several.
-fn billing(table: &str, stack: &Stack, by_env: bool, first: i64, today: i64, rows: &[Row]) -> Billing {
+/// spans several, read from `table` of `source`.
+fn billing((table, source): (&str, Source), stack: &Stack, by_env: bool, first: i64, today: i64, rows: &[Row]) -> Billing {
     let envs = if by_env { stack.by_env() } else { vec![] };
     let by_env = envs
         .into_iter()
@@ -1024,10 +1174,12 @@ fn billing(table: &str, stack: &Stack, by_env: bool, first: i64, today: i64, row
             let mut h = aggregate(table, &sub, first, today, mine);
             h.code_projects = sub.code_projects.get(&env).map(|p| p.iter().cloned().collect()).unwrap_or_default();
             h.env = Some(env);
+            h.source = source;
             h
         })
         .collect();
-    Billing { total: aggregate(table, stack, first, today, rows.iter().collect()), by_env }
+    let total = BillingHistory { source, ..aggregate(table, stack, first, today, rows.iter().collect()) };
+    Billing { total, by_env }
 }
 
 /// Why no export table was found: where costerra looked, and what was refused.
@@ -1092,6 +1244,7 @@ fn aggregate(table: &str, stack: &Stack, first: i64, today: i64, rows: Vec<&Row>
         env: None,
         code_projects: vec![],
         table: table.to_string(),
+        source: Source::Export,
         currency,
         projects: stack.projects(),
         resources: stack.len(),
@@ -1208,6 +1361,13 @@ fn of_env(h: &BillingHistory) -> String {
     h.env.as_deref().map(|e| format!(" of {e}")).unwrap_or_default()
 }
 
+/// The environment of a chart of one environment, to spot it at a glance:
+/// ` PROD ` in reverse video (`[ PROD ]` without colors).
+fn env_badge(h: &BillingHistory, color: bool) -> Option<String> {
+    let e = h.env.as_deref()?.to_uppercase();
+    Some(if color { format!("\x1b[1;7m {e} \x1b[0m") } else { format!("[ {e} ]") })
+}
+
 fn scope(h: &BillingHistory) -> String {
     let unnamed = if h.unnamed > 0 { format!(" ({} more without a name known before apply)", h.unnamed) } else { String::new() };
     format!("{} of {} resources found in the billing{unnamed}", h.resources - h.not_found.len(), h.resources)
@@ -1220,12 +1380,16 @@ pub fn table(h: &BillingHistory, estimate_monthly: Option<f64>, color: bool, wid
     let cur = h.currency.as_str();
     let sym = symbol(cur);
     let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "\n{} {}",
-        styled(color, "1", &format!("📊 Actual billing{}, last {} weeks", of_env(h), h.weeks.len())),
-        styled(color, "2", &format!("(net of credits, {cur})"))
-    );
+    // A chart of one environment starts with a rule and its name, the
+    // charts of the others being above and below.
+    let title = match env_badge(h, color) {
+        Some(badge) => {
+            let _ = write!(out, "\n{}", styled(color, "2", &"━".repeat(width.clamp(40, 100))));
+            format!("{badge} {}", styled(color, "1", &format!("📊 Actual billing, last {} weeks", h.weeks.len())))
+        }
+        None => styled(color, "1", &format!("📊 Actual billing, last {} weeks", h.weeks.len())),
+    };
+    let _ = writeln!(out, "\n{title} {}", styled(color, "2", &format!("(net of credits, {cur})")));
     let _ = writeln!(out, "{}", styled(color, "2", &format!("   resources of the code only: {}", scope(h))));
     if !h.not_found.is_empty() {
         let mut listed: Vec<&str> = h.not_found.iter().take(MAX_LISTED).map(String::as_str).collect();
@@ -1235,7 +1399,11 @@ pub fn table(h: &BillingHistory, estimate_monthly: Option<f64>, color: bool, wid
         }
         let _ = writeln!(out, "{}", styled(color, "2", &format!("   no cost found for: {}", listed.join(", "))));
     }
-    let _ = writeln!(out, "{}\n", styled(color, "2", &format!("   from {}", h.table)));
+    let from = match h.source {
+        Source::Export => h.table.clone(),
+        Source::SummaryTable => format!("the billing summary table {}", h.table),
+    };
+    let _ = writeln!(out, "{}\n", styled(color, "2", &format!("   from {from}")));
     if h.weeks.iter().all(|w| w.cost.abs() < 0.005) {
         let _ = writeln!(out, "   No cost billed to the resources of the code over the period.");
         return out;
@@ -1340,7 +1508,7 @@ pub fn table(h: &BillingHistory, estimate_monthly: Option<f64>, color: bool, wid
 
     // Summary.
     let full: Vec<&Week> = h.full_weeks().collect();
-    let _ = writeln!(out, "   Total over {} weeks: {}", h.weeks.len(), styled(color, "1", &money(cur, h.total)));
+    let _ = writeln!(out, "   Total{} over {} weeks: {}", of_env(h), h.weeks.len(), styled(color, "1", &money(cur, h.total)));
     if !full.is_empty() {
         let avg = full.iter().map(|w| w.cost).sum::<f64>() / full.len() as f64;
         let _ = writeln!(out, "   Average of the {} full weeks: {}/week", full.len(), money(cur, avg));
@@ -1375,19 +1543,19 @@ fn md_escape(s: &str) -> String {
 pub fn markdown(h: &BillingHistory, estimate_monthly: Option<f64>) -> String {
     let cur = h.currency.as_str();
     let mut out = String::new();
-    let _ = writeln!(out, "\n#### 📊 Actual billing{}, last {} weeks\n", of_env(h), h.weeks.len());
-    let _ = writeln!(
-        out,
-        "<sub>Resources of the code only, net of credits, from the Cloud Billing export `{}`: {}.</sub>\n",
-        md_escape(&h.table),
-        scope(h)
-    );
+    let env = h.env.as_deref().map(|e| format!("`{}` · ", md_escape(e))).unwrap_or_default();
+    let _ = writeln!(out, "\n#### 📊 {env}Actual billing{}, last {} weeks\n", of_env(h), h.weeks.len());
+    let from = match h.source {
+        Source::Export => "the Cloud Billing export",
+        Source::SummaryTable => "the billing summary table",
+    };
+    let _ = writeln!(out, "<sub>Resources of the code only, net of credits, from {from} `{}`: {}.</sub>\n", md_escape(&h.table), scope(h));
     let estimate = estimate_monthly.map(weekly);
     let peak = h.weeks.iter().map(|w| w.cost).chain(estimate).fold(0.0, f64::max);
     let labels: Vec<String> =
         h.weeks.iter().map(|w| if w.in_progress { "now".to_string() } else { short_date(&w.start) }).map(|l| format!("\"{l}\"")).collect();
     let values: Vec<String> = h.weeks.iter().map(|w| format!("{:.2}", w.cost.max(0.0))).collect();
-    let _ = writeln!(out, "```mermaid\nxychart-beta\n    title \"Weekly cost ({cur})\"");
+    let _ = writeln!(out, "```mermaid\nxychart-beta\n    title \"Weekly cost{} ({cur})\"", of_env(h));
     let _ = writeln!(out, "    x-axis [{}]", labels.join(", "));
     let _ = writeln!(out, "    y-axis \"{cur}\" 0 --> {:.0}", nice_ceil(peak));
     let _ = writeln!(out, "    bar [{}]", values.join(", "));
@@ -1396,7 +1564,7 @@ pub fn markdown(h: &BillingHistory, estimate_monthly: Option<f64>) -> String {
     }
     let _ = writeln!(out, "```\n");
     let full: Vec<&Week> = h.full_weeks().collect();
-    let mut facts = vec![format!("Total **{}**", money(cur, h.total))];
+    let mut facts = vec![format!("Total{} **{}**", of_env(h), money(cur, h.total))];
     if let [.., prev, last] = full.as_slice() {
         let change = pct_change(last.cost, prev.cost).map(|p| format!(" ({p:+.1}% vs the week before)")).unwrap_or_default();
         facts.push(format!("last full week {}{change}", money(cur, last.cost)));
@@ -1568,6 +1736,7 @@ mod tests {
     fn request() -> Request {
         Request {
             table: None,
+            summary_table: None,
             billing_account: Some("012345-6789AB-CDEF01".into()),
             stack: Stack {
                 names: ["app-prod/vm-a".to_string()].into(),
@@ -1836,7 +2005,7 @@ mod tests {
             .into(),
             ..Default::default()
         };
-        let b = billing("p.d.t", &s, true, first, today, &rows);
+        let b = billing(("p.d.t", Source::Export), &s, true, first, today, &rows);
         assert_eq!(b.total.weeks[11].cost, 100.0);
         let envs: Vec<_> = b
             .charts()
@@ -1847,12 +2016,24 @@ mod tests {
             envs,
             [(Some("dev"), 10.0, 0, vec!["live/dev/app".to_string()], 0), (Some("prod"), 90.0, 1, vec!["live/prod/app".to_string()], 0)]
         );
-        assert!(table(&b.by_env[1], None, false, 100).contains("Actual billing of prod, last 13 weeks"));
+        let prod = table(&b.by_env[1], None, false, 100);
+        assert!(prod.starts_with(&format!("\n{}\n[ PROD ] 📊 Actual billing, last 13 weeks", "━".repeat(100))), "{prod}");
+        assert!(prod.contains("Total of prod over 13 weeks: €90.00"), "{prod}");
+        assert!(table(&b.by_env[1], None, true, 100).contains("\x1b[1;7m PROD \x1b[0m"));
+        let md = markdown(&b.by_env[1], None);
+        assert!(
+            md.contains("#### 📊 `prod` · Actual billing of prod, last 13 weeks") && md.contains("title \"Weekly cost of prod (EUR)\""),
+            "{md}"
+        );
+        assert!(md.contains("Total of prod **€90.00**"), "{md}");
+        // The total of all the environments has no badge.
+        let total = table(&b.total, None, false, 100);
+        assert!(total.starts_with("\n📊 Actual billing, last 13 weeks") && total.contains("Total over 13 weeks"), "{total}");
         // Not asked for: the total only.
-        assert!(billing("p.d.t", &s, false, first, today, &rows).by_env.is_empty());
+        assert!(billing(("p.d.t", Source::Export), &s, false, first, today, &rows).by_env.is_empty());
         // One environment: the total only.
         s.envs.insert("dev-prj/vm".into(), "prod".into());
-        let b = billing("p.d.t", &s, true, first, today, &rows);
+        let b = billing(("p.d.t", Source::Export), &s, true, first, today, &rows);
         assert!(b.by_env.is_empty());
         assert_eq!(b.charts(), std::slice::from_ref(&b.total));
     }
@@ -2007,6 +2188,320 @@ resource "google_project_iam_member" "x" {
         // Then from the cache of weeks.
         let again = block_on(fetch_from(cache.path(), &req, until, &api(&server.url), token, today)).unwrap();
         assert_eq!((posts.load(Ordering::SeqCst), again.total.total), (1, 7.0));
+    }
+
+    fn labeled_stack() -> Stack {
+        Stack {
+            names: ["app-prod/acme-logs".to_string()].into(),
+            prefixes: ["app-prod/web-".to_string()].into(),
+            clusters: ["app-prod/gke".to_string()].into(),
+            workstations: ["app-prod/1e87c094".to_string()].into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_sql_of_each_source() {
+        let raw = export_sql("p.billing.export", &labeled_stack());
+        assert!(
+            raw.contains("FROM `p.billing.export`") && raw.contains("DATE(_PARTITIONTIME) >= DATE_SUB(@start, INTERVAL 1 DAY)"),
+            "{raw}"
+        );
+        assert!(raw.contains("UNNEST(labels)") && raw.contains("'goog-k8s-cluster-name', 'goog-drz-workstation-uuid'"), "{raw}");
+
+        let sql = summary_sql("p.costerra.daily_costs", &labeled_stack());
+        assert!(sql.contains("FROM `p.costerra.daily_costs`"), "{sql}");
+        // The partition column of the summary, not the one of the export.
+        assert!(sql.contains("WHERE export_day >= DATE_SUB(@start, INTERVAL 1 DAY) AND usage_day >= @start"), "{sql}");
+        assert!(sql.contains("DATE_TRUNC(usage_day, ISOWEEK)") && sql.contains("GROUP BY week, service, resource"), "{sql}");
+        for absent in ["_PARTITIONTIME", "labels", "usage_start_time", "credits", "cost,", ".id", ".name", ".description"] {
+            assert!(!sql.contains(absent), "{absent} in {sql}");
+        }
+        // Only the columns of the summary table are read.
+        let columns = ["usage_day", "service", "net", "currency", "project", "resource", "cluster", "workstation", "export_day"];
+        let read = sql.split("FROM `").next().unwrap();
+        let syntax = ["WITH", "r", "AS", "SELECT", "CONCAT", "IFNULL", "rkey", "cluster_key", "workstation_key"];
+        for word in read.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').filter(|w| !w.is_empty()) {
+            assert!(columns.contains(&word) || syntax.contains(&word), "{word} read in {sql}");
+        }
+        assert!(sql.contains("CONCAT(project, '/', cluster) AS cluster_key") && sql.contains("CONCAT(project, '/', workstation)"), "{sql}");
+        // The label columns are only read when the code has resources matched by them.
+        let plain = summary_sql("p.costerra.daily_costs", &stack());
+        assert!(!plain.contains("cluster") && !plain.contains("workstation"), "{plain}");
+        let gke = summary_sql("p.costerra.daily_costs", &Stack { clusters: ["a/gke".to_string()].into(), ..stack() });
+        assert!(gke.contains("cluster_key") && !gke.contains("workstation"), "{gke}");
+    }
+
+    /// A row of the detailed export, as far as the queries read it.
+    struct ExportRow {
+        export_day: &'static str,
+        /// `usage_start_time` (UTC).
+        usage: &'static str,
+        project: &'static str,
+        resource: Option<&'static str>,
+        labels: &'static [(&'static str, &'static str)],
+        service: &'static str,
+        cost: f64,
+        credits: &'static [f64],
+    }
+
+    /// The rows the export query returns (as its SQL computes them).
+    fn query_export(rows: &[ExportRow], stack: &Stack, start: i64) -> Vec<Row> {
+        let keys: Vec<&str> = [
+            (!stack.clusters.is_empty()).then_some("goog-k8s-cluster-name"),
+            (!stack.workstations.is_empty()).then_some("goog-drz-workstation-uuid"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let labeled: BTreeSet<&String> = stack.labeled().collect();
+        let mut out: BTreeMap<(String, String, String), f64> = BTreeMap::new();
+        for r in rows {
+            let usage_day = parse_date(r.usage).unwrap();
+            let in_scope = stack.projects().iter().any(|p| p == r.project);
+            if usage_day < start || !in_scope || parse_date(r.export_day).unwrap() < start - 1 {
+                continue;
+            }
+            let rkey = format!("{}/{}", r.project, r.resource.unwrap_or_default());
+            let ckey = r.labels.iter().find(|(k, _)| keys.contains(k)).map(|(_, v)| format!("{}/{v}", r.project));
+            let resource = match ckey.filter(|c| labeled.contains(c)) {
+                Some(c) => Some(c),
+                None if stack.names.contains(&rkey) => Some(rkey.clone()),
+                None => stack.prefixes.iter().find(|p| rkey.starts_with(p.as_str())).cloned(),
+            };
+            let Some(resource) = resource else { continue };
+            let net = r.cost + r.credits.iter().sum::<f64>();
+            *out.entry((iso_date(monday(usage_day)), r.service.to_string(), resource)).or_default() += net;
+        }
+        out.into_iter().map(|((week, service, resource), cost)| Row { week, service, cost, currency: "EUR".into(), resource }).collect()
+    }
+
+    /// A row of the summary table.
+    struct SummaryRow {
+        export_day: i64,
+        usage_day: i64,
+        project: String,
+        resource: Option<String>,
+        cluster: Option<String>,
+        workstation: Option<String>,
+        service: String,
+        net: f64,
+    }
+
+    /// The summary table built from the export (as `SUMMARY_SELECT` computes it).
+    fn summarize(rows: &[ExportRow]) -> Vec<SummaryRow> {
+        type Key = (i64, i64, String, Option<String>, Option<String>, Option<String>, String);
+        let label = |r: &ExportRow, key: &str| r.labels.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string());
+        let mut out: BTreeMap<Key, f64> = BTreeMap::new();
+        for r in rows {
+            let (cluster, workstation) = (label(r, "goog-k8s-cluster-name"), label(r, "goog-drz-workstation-uuid"));
+            if r.resource.is_none() && cluster.is_none() && workstation.is_none() {
+                continue;
+            }
+            let key = (
+                parse_date(r.export_day).unwrap(),
+                parse_date(r.usage).unwrap(),
+                r.project.to_string(),
+                r.resource.map(str::to_string),
+                cluster,
+                workstation,
+                r.service.to_string(),
+            );
+            *out.entry(key).or_default() += r.cost + r.credits.iter().sum::<f64>();
+        }
+        out.into_iter()
+            .map(|((export_day, usage_day, project, resource, cluster, workstation, service), net)| SummaryRow {
+                export_day,
+                usage_day,
+                project,
+                resource,
+                cluster,
+                workstation,
+                service,
+                net,
+            })
+            .collect()
+    }
+
+    /// The rows the summary query returns (as `summary_sql` computes them).
+    fn query_summary(rows: &[SummaryRow], stack: &Stack, start: i64) -> Vec<Row> {
+        let labeled: BTreeSet<&String> = stack.labeled().collect();
+        let mut out: BTreeMap<(String, String, String), f64> = BTreeMap::new();
+        for r in rows {
+            if r.export_day < start - 1 || r.usage_day < start || !stack.projects().contains(&r.project) {
+                continue;
+            }
+            let rkey = format!("{}/{}", r.project, r.resource.as_deref().unwrap_or_default());
+            let key = |v: &Option<String>, on: bool| {
+                v.as_ref().filter(|_| on).map(|v| format!("{}/{v}", r.project)).filter(|k| labeled.contains(k))
+            };
+            let resource = key(&r.cluster, !stack.clusters.is_empty())
+                .or_else(|| key(&r.workstation, !stack.workstations.is_empty()))
+                .or_else(|| stack.names.contains(&rkey).then(|| rkey.clone()))
+                .or_else(|| stack.prefixes.iter().find(|p| rkey.starts_with(p.as_str())).cloned());
+            let Some(resource) = resource else { continue };
+            *out.entry((iso_date(monday(r.usage_day)), r.service.clone(), resource)).or_default() += r.net;
+        }
+        out.into_iter().map(|((week, service, resource), cost)| Row { week, service, cost, currency: "EUR".into(), resource }).collect()
+    }
+
+    /// From the same export rows, the summary table gives the same weeks per
+    /// service as the export: a bucket, a VM of an instance group, a GKE node
+    /// and the disk of a workstation.
+    #[test]
+    fn the_summary_gives_the_weeks_of_the_export() {
+        const GKE: &[(&str, &str)] = &[("goog-k8s-cluster-name", "gke"), ("goog-k8s-node-pool-name", "pool")];
+        const WS: &[(&str, &str)] = &[("goog-drz-workstation-uuid", "1e87c094")];
+        let row = |export_day, usage, resource, labels, service, cost, credits| ExportRow {
+            export_day,
+            usage,
+            project: "app-prod",
+            resource,
+            labels,
+            service,
+            cost,
+            credits,
+        };
+        let rows = [
+            // Before the first week: left out.
+            row("2026-07-25", "2026-07-25", Some("acme-logs"), &[], "Cloud Storage", 1000.0, &[]),
+            // Monday of the first week, exported the day before the next partition.
+            row("2026-07-26", "2026-07-27", Some("acme-logs"), &[], "Cloud Storage", 3.0, &[]),
+            row("2026-07-27", "2026-07-27", Some("acme-logs"), &[], "Cloud Storage", 4.0, &[-0.5]),
+            // The end of a week and the start of the next one.
+            row("2026-08-02", "2026-08-02", Some("web-x1z2"), &[], "Compute Engine", 10.0, &[-2.0, -1.0]),
+            row("2026-08-03", "2026-08-03", Some("web-x1z2"), &[], "Compute Engine", 11.0, &[]),
+            // Exported late, in a later partition.
+            row("2026-08-06", "2026-08-03", Some("web-a9b8"), &[], "Compute Engine", 5.0, &[]),
+            row("2026-10-20", "2026-10-19", Some("gke-gke-pool-1a2b"), GKE, "Compute Engine", 70.0, &[-7.0]),
+            // A GKE cost without a resource name.
+            row("2026-10-20", "2026-10-20", None, GKE, "Kubernetes Engine", 2.4, &[]),
+            row("2026-10-12", "2026-10-12", Some("projects/1/zones/z/disks/ws-disk-1"), WS, "Compute Engine", 28.0, &[]),
+            row("2026-10-12", "2026-10-12", Some("ws-vm-1"), WS, "Cloud Workstations", 9.0, &[-1.0]),
+            // Not of the code: another resource, another project, no resource.
+            row("2026-10-12", "2026-10-12", Some("other-vm"), &[], "Compute Engine", 500.0, &[]),
+            ExportRow { project: "elsewhere", ..row("2026-10-12", "2026-10-12", Some("acme-logs"), &[], "Cloud Storage", 500.0, &[]) },
+            row("2026-10-12", "2026-10-12", None, &[], "Networking", 500.0, &[]),
+        ];
+        let today = parse_date("2026-10-21").unwrap();
+        let first = monday(today) - 7 * (WEEKS as i64 - 1);
+        let summary = summarize(&rows);
+        assert_eq!(summary.len(), rows.len() - 1, "the row without resource nor label is left out");
+        for stack in [labeled_stack(), Stack { clusters: BTreeSet::new(), ..labeled_stack() }, stack()] {
+            let raw = query_export(&rows, &stack, first);
+            let sum = query_summary(&summary, &stack, first);
+            let (a, b) = (
+                aggregate("p.d.t", &stack, first, today, raw.iter().collect()),
+                aggregate("p.d.t", &stack, first, today, sum.iter().collect()),
+            );
+            assert_eq!(a.services, b.services, "{stack:?}");
+            assert_eq!(a.not_found, b.not_found, "{stack:?}");
+            for (x, y) in a.weeks.iter().zip(&b.weeks) {
+                assert_eq!(x.start, y.start);
+                for (s, v) in &x.services {
+                    assert!((v - y.services[s]).abs() < 1e-9, "{} {s}: {v} vs {}", x.start, y.services[s]);
+                }
+            }
+        }
+        let h = aggregate("p.d.t", &labeled_stack(), first, today, query_summary(&summary, &labeled_stack(), first).iter().collect());
+        let week = |d: &str| h.weeks.iter().find(|w| w.start == d).unwrap().cost;
+        assert_eq!((week("2026-07-27"), week("2026-08-03"), week("2026-10-12"), week("2026-10-19")), (6.5 + 7.0, 16.0, 36.0, 65.4));
+        assert!(h.not_found.is_empty(), "{:?}", h.not_found);
+    }
+
+    /// The same table name read as an export and as a summary: two caches.
+    #[test]
+    fn the_cache_of_a_summary_table_is_apart() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let posts = std::sync::Arc::new(AtomicUsize::new(0));
+        let n = posts.clone();
+        let server = fake_http::serve(move |r| {
+            n.fetch_add(1, Ordering::SeqCst);
+            let q: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+            let cost = if q["query"].as_str().unwrap().contains("export_day") { "2" } else { "1" };
+            (200, json!({"jobComplete": true, "rows": [{"f": [{"v": "2026-10-12"}, {"v": "Compute Engine"}, {"v": cost}, {"v": "USD"}, {"v": "app-prod/vm-a"}]}]}).to_string())
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let token = async || Some(Auth::Bearer("t0k3n".into()));
+        let today = parse_date("2026-10-21").unwrap();
+        let export = Request { table: Some("p.d.t".into()), ..request() };
+        let summary = Request { summary_table: Some("p.d.t".into()), ..export.clone() };
+        for _ in 0..2 {
+            let a = block_on(fetch_from(cache.path(), &export, until, &api(&server.url), token, today)).unwrap().total;
+            let b = block_on(fetch_from(cache.path(), &summary, until, &api(&server.url), token, today)).unwrap().total;
+            assert_eq!((a.total, a.source, b.total, b.source), (1.0, Source::Export, 2.0, Source::SummaryTable));
+        }
+        assert_eq!(posts.load(Ordering::SeqCst), 2, "one query per source, then cached");
+        let c: Cache = crate::util::read_json(&cache_path(cache.path()));
+        assert_eq!(c.weeks.keys().collect::<BTreeSet<_>>(), ["p.d.t".to_string(), "summary:p.d.t".to_string()].iter().collect());
+    }
+
+    /// A summary table that cannot be read: one warning naming it and the
+    /// project of the query, no discovery and no other try (not on the export either).
+    #[test]
+    fn a_summary_table_not_readable_is_explained() {
+        let cases = [
+            (404, "Not found: Table bill:costerra.daily_costs was not found in location EU", "not found (Not found: Table"),
+            (403, "Access Denied: Table bill:costerra.daily_costs", "permission denied (Access Denied"),
+            (400, "Unrecognized name: workstation at [1:80]", "not a costerra summary table (Unrecognized name: workstation"),
+        ];
+        for (status, msg, want) in cases {
+            let server = fake_http::serve(move |r| {
+                assert!(r.path.ends_with("/projects/quota/queries"), "{}", r.path);
+                assert!(r.body.contains("FROM `bill.costerra.daily_costs`") && !r.body.contains("_PARTITIONTIME"), "{}", r.body);
+                (status, json!({"error": {"message": msg}}).to_string())
+            });
+            let cache = tempfile::tempdir().unwrap();
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let token = async || Some(Auth::Bearer("t0k3n".into()));
+            // No export table given: it would otherwise be discovered.
+            let req = Request { summary_table: Some("bill.costerra.daily_costs".into()), ..request() };
+            let e = block_on(fetch_from(cache.path(), &req, until, &api(&server.url), token, 20_000)).unwrap_err();
+            assert!(e.starts_with("billing summary table bill.costerra.daily_costs (query run in quota): ") && e.contains(want), "{e}");
+            if status == 403 {
+                assert!(e.contains("roles/bigquery.dataViewer on the dataset of the summary table"), "{e}");
+            }
+            assert_eq!(server.count(), 1, "one try");
+        }
+        let bad = Request { summary_table: Some("nope".into()), ..request() };
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let e = block_on(fetch_from(tempfile::tempdir().unwrap().path(), &bad, until, &api("http://127.0.0.1:9"), async || None, 20_000));
+        assert!(e.unwrap_err().contains("invalid billing summary table 'nope'"));
+    }
+
+    #[test]
+    fn the_outputs_name_the_summary_table() {
+        let today = parse_date("2026-10-21").unwrap();
+        let first = monday(today) - 84;
+        let b = billing(("bill.costerra.daily_costs", Source::SummaryTable), &stack(), false, first, today, &rows());
+        assert_eq!(serde_json::to_value(&b.total).unwrap()["source"], "summary_table");
+        assert!(table(&b.total, None, false, 100).contains("from the billing summary table bill.costerra.daily_costs"));
+        assert!(markdown(&b.total, None).contains("from the billing summary table `bill.costerra.daily_costs`"));
+        let raw = billing(("p.d.t", Source::Export), &stack(), false, first, today, &rows());
+        assert_eq!(serde_json::to_value(&raw.total).unwrap()["source"], "export");
+        assert!(table(&raw.total, None, false, 100).contains("   from p.d.t\n"));
+        assert!(markdown(&raw.total, None).contains("from the Cloud Billing export `p.d.t`"));
+    }
+
+    #[test]
+    fn the_sql_of_a_summary_table() {
+        let sql = summary_table_sql("bill.billing.gcp_billing_export_resource_v1_X", "bill.costerra.daily_costs", 120).unwrap();
+        for want in [
+            "CREATE TABLE `bill.costerra.daily_costs` (",
+            "export_day DATE NOT NULL",
+            "workstation STRING",
+            "PARTITION BY export_day\nCLUSTER BY project, resource\nOPTIONS (partition_expiration_days = 120);",
+            "DATE(_PARTITIONTIME) >= DATE_SUB(CURRENT_DATE(), INTERVAL 120 DAY)",
+            "DELETE FROM `bill.costerra.daily_costs`\nWHERE export_day >= DATE_SUB(@run_date, INTERVAL 2 DAY);",
+            "DATE(_PARTITIONTIME) >= DATE_SUB(@run_date, INTERVAL 2 DAY)",
+            "l.key = 'goog-drz-workstation-uuid' LIMIT 1) AS workstation",
+            "GROUP BY 1, 2, 3, 4, 5, 6, 7, 8;",
+        ] {
+            assert!(sql.contains(want), "{want} not in {sql}");
+        }
+        assert_eq!(sql.matches("FROM `bill.billing.gcp_billing_export_resource_v1_X`").count(), 2);
+        assert!(summary_table_sql("bill.d.t", "x`; DROP", 120).unwrap_err().contains("invalid summary table"));
     }
 
     fn api(url: &str) -> Endpoints {

@@ -1075,7 +1075,8 @@ pub fn markdown(
                 money(cur, d.new)
             );
             let _ = writeln!(out, "| Project | Previous | New | Diff |\n|---|---:|---:|---:|");
-            for p in d.projects.iter().filter(|p| p.diff.abs() >= 0.005 || !p.resources.is_empty()) {
+            let listed = |p: &crate::diff::ProjectDiff| p.diff.abs() >= 0.005 || !p.resources.is_empty();
+            for p in d.projects.iter().filter(|p| listed(p)) {
                 let _ = writeln!(
                     out,
                     "| {} | {} | {} | {} |",
@@ -1084,6 +1085,10 @@ pub fn markdown(
                     money(cur, p.new),
                     signed(cur, p.diff)
                 );
+            }
+            // The headline is of every project: the others are added up in one row.
+            if let Some((rest, cost)) = unchanged_projects(d, listed, |n| title(n)) {
+                let _ = writeln!(out, "| _Unchanged: {}_ | {} | {} | — |", md_escape(&rest), money(cur, cost), money(cur, cost));
             }
             let changed: Vec<_> = d.projects.iter().flat_map(|p| p.resources.iter().map(move |r| (p, r))).collect();
             if !changed.is_empty() {
@@ -1310,6 +1315,22 @@ pub fn billing_estimate(report: &Report, h: &crate::billing::BillingHistory) -> 
     })
 }
 
+/// The projects without a changed resource: not listed, but counted in the
+/// total: `. (dev)` (up to 3 names) or `4 projects`, and their monthly cost.
+fn unchanged_projects(
+    d: &DiffReport,
+    listed: impl Fn(&crate::diff::ProjectDiff) -> bool,
+    name: impl Fn(&str) -> String,
+) -> Option<(String, f64)> {
+    let rest: Vec<_> = d.projects.iter().filter(|p| !listed(p)).collect();
+    let what = match rest.len() {
+        0 => return None,
+        1..=3 => rest.iter().map(|p| name(&p.name)).collect::<Vec<_>>().join(", "),
+        n => format!("{n} projects"),
+    };
+    Some((what, rest.iter().map(|p| p.new).sum()))
+}
+
 pub fn diff_table(d: &DiffReport, st: &Style) -> String {
     let cur = &d.currency;
     let mut out = String::new();
@@ -1333,11 +1354,12 @@ pub fn diff_table(d: &DiffReport, st: &Style) -> String {
                 st.delta(signed(cur, r.diff), r.diff)
             );
         }
+        let pct = if p.past > 0.0 { format!(" ({:+.1}%)", p.diff / p.past * 100.0) } else { String::new() };
         let _ = writeln!(
             out,
             "\n Monthly cost change for {}: {} ({} → {})\n",
             st.paint(p.name.as_str()).bold().s(),
-            st.delta(signed(cur, p.diff), p.diff),
+            st.delta(format!("{}{pct}", signed(cur, p.diff)), p.diff),
             money(cur, p.past),
             money(cur, p.new)
         );
@@ -1351,10 +1373,18 @@ pub fn diff_table(d: &DiffReport, st: &Style) -> String {
         st.paint("- removed").red().s(),
         st.paint("~ changed").yellow().s()
     );
+    // The total is of every project: say so when some are not listed above.
+    let label = match unchanged_projects(d, |p| !p.resources.is_empty(), str::to_string) {
+        Some((rest, cost)) => {
+            let _ = writeln!(out, "{}", st.paint(format!("Unchanged, not listed: {rest} ({})", money(cur, cost))).dim().s());
+            "Monthly cost change, all projects:"
+        }
+        None => "Monthly cost change:",
+    };
     let _ = writeln!(
         out,
         "{} {}  ({} → {})",
-        st.paint("Monthly cost change:").bold().s(),
+        st.paint(label).bold().s(),
         st.delta(format!("{}{pct}", signed(cur, d.diff)), d.diff),
         money(cur, d.past),
         st.paint(money(cur, d.new)).bold().s()

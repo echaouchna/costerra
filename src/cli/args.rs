@@ -70,6 +70,9 @@ pub enum Cmd {
     /// Usage file helpers
     #[command(subcommand)]
     Usage(UsageCmd),
+    /// Helpers for --billing-history
+    #[command(subcommand)]
+    Billing(BillingCmd),
     /// List supported resource types
     Resources {
         /// Only show resources matching this substring
@@ -268,6 +271,10 @@ pub struct RunArgs {
     /// Cloud Billing export table for --billing-history (default: discovered)
     #[arg(long, env = "COSTERRA_BILLING_EXPORT_TABLE", value_name = "PROJECT.DATASET.TABLE")]
     pub billing_export_table: Option<String>,
+    /// Daily summary of the billing export read by --billing-history instead of
+    /// the export (docs/billing-summary-table.md; `costerra billing summary-sql`)
+    #[arg(long, env = "COSTERRA_BILLING_SUMMARY_TABLE", value_name = "PROJECT.DATASET.TABLE")]
+    pub billing_summary_table: Option<String>,
 }
 
 #[derive(Args)]
@@ -382,6 +389,23 @@ pub enum PricingCmd {
         limit: usize,
         #[arg(long, default_value = "USD", env = "COSTERRA_CURRENCY")]
         currency: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BillingCmd {
+    /// Print the SQL of a billing summary table (--billing-summary-table): the
+    /// CREATE TABLE, the backfill and the daily scheduled query
+    SummarySql {
+        /// Detailed Cloud Billing export table read (gcp_billing_export_resource_v1_…)
+        #[arg(long, value_name = "PROJECT.DATASET.TABLE")]
+        export_table: String,
+        /// Summary table to create (in a dataset in the location of the export)
+        #[arg(long, value_name = "PROJECT.DATASET.TABLE")]
+        table: String,
+        /// Days of export kept (partition expiration) and backfilled: at least the 13 weeks shown
+        #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u32).range(92..=3650))]
+        days: u32,
     },
 }
 

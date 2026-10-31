@@ -45,6 +45,7 @@ pub fn main() {
         Cmd::Pricing(p) => pricing::run(p),
         Cmd::Usage(UsageCmd::Init { eval, out, force }) => usage::init(&eval, &out, force),
         Cmd::Usage(UsageCmd::Profiles { rtype }) => usage::profiles(rtype),
+        Cmd::Billing(b) => billing::run(b),
         Cmd::Resources { filter } => usage::resources(filter),
         Cmd::Completions { shell } => completions::print(shell),
     };

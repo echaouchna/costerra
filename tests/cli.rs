@@ -111,6 +111,33 @@ fn diff_against_git_ref() {
     assert!(!repo.path().join(".git/worktrees").exists());
 }
 
+/// The total of a diff is of every project: the ones without a change, not
+/// listed, are named next to it.
+#[test]
+fn the_diff_total_says_which_projects_it_covers() {
+    let cache = cache_dir();
+    let repo = tempfile::tempdir().unwrap();
+    copy_dir(&testdata("terragrunt"), repo.path());
+    git(repo.path(), &["init", "-q", "-b", "main"]);
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "base"]);
+    let hcl = repo.path().join("live/prod/app/terragrunt.hcl");
+    std::fs::write(&hcl, std::fs::read_to_string(&hcl).unwrap().replace("replicas     = 4", "replicas     = 5")).unwrap();
+    let mut args = vec!["diff", ".", "--base", "main", "-f", "table,json:diff.json,markdown:diff.md"];
+    args.extend(OFFLINE);
+    let o = costerra(cache.path(), repo.path(), &args);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    let out = text(&o.stdout);
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.path().join("diff.json")).unwrap()).unwrap();
+    let unchanged: Vec<&serde_json::Value> =
+        j["diff"]["projects"].as_array().unwrap().iter().filter(|p| p["resources"].as_array().unwrap().is_empty()).collect();
+    assert!(!unchanged.is_empty(), "{}", j["diff"]);
+    assert!(out.contains("Monthly cost change for live/prod/app: +$253.12 (+"), "{out}");
+    assert!(out.contains("Unchanged, not listed: ") && out.contains("Monthly cost change, all projects: +$253.12"), "{out}");
+    let md = std::fs::read_to_string(repo.path().join("diff.md")).unwrap();
+    assert!(md.contains("| _Unchanged: "), "{md}");
+}
+
 #[test]
 fn config_typos_are_errors() {
     let cache = cache_dir();
@@ -473,4 +500,72 @@ fn completions_for_every_shell() {
     // The xonsh completer offers the formats of `--format`.
     let o = costerra(cache.path(), &testdata(""), &["completions", "xonsh"]);
     assert!(text(&o.stdout).contains(r#""--format":[["table","#), "{}", text(&o.stdout));
+}
+
+/// `--billing-summary-table` wins over `COSTERRA_BILLING_SUMMARY_TABLE`,
+/// which wins over `billing_summary_table:`. An invalid name is refused
+/// before any request, in a warning that names the table used.
+#[test]
+fn the_billing_summary_table_is_taken_from_the_flag_the_env_or_the_config() {
+    let cache = cache_dir();
+    let dir = tempfile::tempdir().unwrap();
+    let main = "provider \"google\" { project = \"app-prod\" }\n\
+                resource \"google_storage_bucket\" \"logs\" {\n  name     = \"acme-logs\"\n  location = \"EU\"\n}\n";
+    std::fs::write(dir.path().join("main.tf"), main).unwrap();
+    std::fs::write(dir.path().join("costerra.yml"), "billing_summary_table: from-config\n").unwrap();
+    let run = |flag: Option<&str>, env: Option<&str>| {
+        let mut args = vec!["breakdown", ".", "--list-prices", "--no-refresh", "--no-remote-state", "--billing-history"];
+        if let Some(f) = flag {
+            args.extend(["--billing-summary-table", f]);
+        }
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_costerra"));
+        cmd.current_dir(dir.path())
+            .arg("--cache-dir")
+            .arg(cache.path())
+            .args(["--color", "never"])
+            .args(&args)
+            .env("COSTERRA_NO_INSIGHTS", "1")
+            .env("COSTERRA_NO_OBSERVED", "1")
+            .env_remove("COSTERRA_BILLING_EXPORT_TABLE")
+            .env_remove("COSTERRA_BILLING_SUMMARY_TABLE");
+        if let Some(e) = env {
+            cmd.env("COSTERRA_BILLING_SUMMARY_TABLE", e);
+        }
+        let o = cmd.output().unwrap();
+        assert!(o.status.success(), "{}", text(&o.stderr));
+        let err = text(&o.stderr);
+        assert!(text(&o.stdout).contains("OVERALL TOTAL"), "the rest of the report is unchanged: {}", text(&o.stdout));
+        err
+    };
+    let warning = |t: &str| format!("--billing-history: invalid billing summary table '{t}' (expected PROJECT.DATASET.TABLE)");
+    assert!(run(Some("from-flag"), Some("from-env")).contains(&warning("from-flag")));
+    assert!(run(None, Some("from-env")).contains(&warning("from-env")));
+    assert!(run(None, None).contains(&warning("from-config")));
+    // Empty, as in the CI templates: the config is used.
+    assert!(run(None, Some("")).contains(&warning("from-config")));
+}
+
+#[test]
+fn the_sql_of_a_billing_summary_table_is_printed() {
+    let cache = cache_dir();
+    let args = [
+        "billing",
+        "summary-sql",
+        "--export-table",
+        "bill.billing.gcp_billing_export_resource_v1_X",
+        "--table",
+        "bill.costerra.daily_costs",
+    ];
+    let o = costerra(cache.path(), &testdata(""), &args);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    let sql = text(&o.stdout);
+    assert!(
+        sql.contains("CREATE TABLE `bill.costerra.daily_costs`")
+            && sql.contains("partition_expiration_days = 120")
+            && sql.contains("@run_date"),
+        "{sql}"
+    );
+    let o =
+        costerra(cache.path(), &testdata(""), &["billing", "summary-sql", "--export-table", "x", "--table", "bill.costerra.daily_costs"]);
+    assert!(!o.status.success() && text(&o.stderr).contains("invalid export table 'x'"), "{}", text(&o.stderr));
 }

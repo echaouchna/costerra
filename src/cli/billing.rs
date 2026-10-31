@@ -1,7 +1,7 @@
 //! `--billing-history`: the actual billing of the resources of the code,
 //! read in the background while the code is priced.
 
-use super::args::RunArgs;
+use super::args::{BillingCmd, RunArgs};
 use super::common::rt;
 use super::ui::{self, notice};
 use anyhow::{Result, bail};
@@ -34,6 +34,7 @@ pub fn start(a: &RunArgs, config: &Config, sets: &[&[Project]], billing_account:
     }
     let req = billing::Request {
         table: a.billing_export_table.clone().or(config.billing_export_table.clone()),
+        summary_table: summary_table(a, config),
         billing_account,
         stack: billing::stack_of(sets, |p| billing::env_name(p, config)),
         quota: insights::quota_project(a.quota_project.as_deref().or(config.quota_project.as_deref())),
@@ -45,6 +46,24 @@ pub fn start(a: &RunArgs, config: &Config, sets: &[&[Project]], billing_account:
         let rt = rt().map_err(|e| e.to_string())?;
         rt.block_on(billing::fetch(&cache, &req, until))
     }))
+}
+
+/// The summary table to read: `--billing-summary-table` (or
+/// `COSTERRA_BILLING_SUMMARY_TABLE`), else `billing_summary_table:`. An empty
+/// variable (a CI template's default) is not set.
+fn summary_table(a: &RunArgs, config: &Config) -> Option<String> {
+    let set = |t: &Option<String>| t.clone().filter(|t| !t.is_empty());
+    set(&a.billing_summary_table).or(set(&config.billing_summary_table))
+}
+
+/// `costerra billing …`
+pub fn run(cmd: BillingCmd) -> Result<i32> {
+    match cmd {
+        BillingCmd::SummarySql { export_table, table, days } => {
+            print!("{}", billing::summary_table_sql(&export_table, &table, days).map_err(anyhow::Error::msg)?);
+            Ok(0)
+        }
+    }
 }
 
 /// The billing, or a warning saying why it could not be read.

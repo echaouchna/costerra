@@ -15,6 +15,11 @@
 #                     impersonate for the Google APIs (prices, observed usage,
 #                     remote states); the workflow's credentials need
 #                     roles/iam.serviceAccountTokenCreator on it.
+#   COSTERRA_BILLING_SUMMARY_TABLE  (variable, optional) PROJECT.DATASET.TABLE of
+#                     a daily summary of the billing export, read by
+#                     --billing-history (add it to the diff command) instead of
+#                     the export: each run scans megabytes
+#                     (docs/billing-summary-table.md).
 #
 # Pull requests from forks get a read-only token: the estimate runs, but the
 # comment cannot be posted. Do not switch to `pull_request_target` to work
@@ -41,6 +46,7 @@ jobs:
       COSTERRA_IMAGE: ${{ vars.COSTERRA_IMAGE || 'ghcr.io/echaouchna/costerra:latest' }}
       COSTERRA_RECOMMENDATIONS: ${{ vars.COSTERRA_RECOMMENDATIONS || 'true' }}
       COSTERRA_IMPERSONATE_SERVICE_ACCOUNT: ${{ vars.COSTERRA_IMPERSONATE_SERVICE_ACCOUNT }}
+      COSTERRA_BILLING_SUMMARY_TABLE: ${{ vars.COSTERRA_BILLING_SUMMARY_TABLE }}
       BASE_REF: ${{ github.base_ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +67,7 @@ jobs:
         run: |
           costerra() {
             docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" \
-              -e HOME=/tmp -e COSTERRA_CACHE_DIR=/work/.costerra-cache -e COSTERRA_API_KEY -e COSTERRA_RECOMMENDATIONS -e COSTERRA_IMPERSONATE_SERVICE_ACCOUNT \
+              -e HOME=/tmp -e COSTERRA_CACHE_DIR=/work/.costerra-cache -e COSTERRA_API_KEY -e COSTERRA_RECOMMENDATIONS -e COSTERRA_IMPERSONATE_SERVICE_ACCOUNT -e COSTERRA_BILLING_SUMMARY_TABLE \
               "$COSTERRA_IMAGE" "$@"
           }
           costerra pricing sync --if-older-than 7d

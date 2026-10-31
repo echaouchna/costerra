@@ -5,6 +5,7 @@
 //! currency: USD
 //! billing_account: 012345-6789AB-CDEF01   # use your contract prices
 //! billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01
+//! billing_summary_table: my-billing.costerra.daily_costs   # read instead of the export
 //! usage_file: costerra-usage.yml
 //! exclude_paths: ["examples/**"]
 //! environments:
@@ -84,6 +85,9 @@ pub struct Config {
     /// Cloud Billing export table read by `--billing-history`
     /// (`project.dataset.gcp_billing_export_resource_v1_…`; default: discovered).
     pub billing_export_table: Option<String>,
+    /// Daily summary of the export read by `--billing-history` instead of it
+    /// (`project.dataset.table`, see docs/billing-summary-table.md).
+    pub billing_summary_table: Option<String>,
     pub usage_file: Option<PathBuf>,
     pub include_free_tier: bool,
     pub exclude_paths: Vec<String>,

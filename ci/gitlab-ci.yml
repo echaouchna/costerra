@@ -22,6 +22,10 @@
 #                      job's credentials need roles/iam.serviceAccountTokenCreator on it
 #   COSTERRA_NO_REMOTE_STATE  "true" to not read terraform_remote_state outputs
 #                      from the GCS state buckets
+#   COSTERRA_BILLING_SUMMARY_TABLE  PROJECT.DATASET.TABLE of a daily summary of the
+#                      billing export, read by --billing-history (add it to
+#                      COSTERRA_ARGS) instead of the export: each run scans
+#                      megabytes (docs/billing-summary-table.md)
 
 costerra:
   stage: test
@@ -36,6 +40,7 @@ costerra:
     COSTERRA_PRICES_MAX_AGE: 7d
     COSTERRA_RECOMMENDATIONS: "true"
     COSTERRA_IMPERSONATE_SERVICE_ACCOUNT: ""
+    COSTERRA_BILLING_SUMMARY_TABLE: ""
     COSTERRA_CACHE_DIR: "$CI_PROJECT_DIR/.costerra-cache"
     GIT_DEPTH: 0
   cache:

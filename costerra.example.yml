@@ -33,6 +33,9 @@ recommendations:
 # billing of the resources of the code). Default: discovered in the
 # organization of the projects.
 # billing_export_table: my-billing.billing.gcp_billing_export_resource_v1_012345_6789AB_CDEF01
+# Daily summary of the export, read instead of it: each run scans megabytes
+# instead of gigabytes (docs/billing-summary-table.md, `costerra billing summary-sql`).
+# billing_summary_table: my-billing.costerra.daily_costs
 
 # terraform_remote_state (gcs backend) outputs read from the state buckets
 # (Storage Object Viewer), e.g. for project ids taken from another configuration.
